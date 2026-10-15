@@ -97,11 +97,11 @@ int main(int argc, char **argv)
 
     /* Step 3: Verify */
     g_print("------------------------------------------------------\n");
-    g_print(" Step 2 complete. Please ensure your finger is lifted.\n");
-    g_print(" Preparing for verification test in 1.5 seconds...\n");
+    g_print(" Step 2 complete: Enrollment succeeded.\n");
+    g_print(" Transitioning to verification test...\n");
     g_print("------------------------------------------------------\n\n");
     fflush(stdout);
-    g_usleep(1500000);
+    g_usleep(500000);
 
     g_print("[3/4] VERIFICATION: Testing matching against enrolled finger...\n");
     gboolean is_match = FALSE;

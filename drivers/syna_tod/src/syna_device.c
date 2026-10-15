@@ -424,12 +424,13 @@ syna_capture_finger_sample (FpiDeviceSyna00dc *self, GCancellable *cancellable, 
         return NULL;
     }
 
-    /* 4. Report waiting for finger IMMEDIATELY before reading */
-    fpi_device_report_finger_status_changes (FP_DEVICE (self), FP_FINGER_STATUS_NEEDED, FP_FINGER_STATUS_NONE);
-
-    /* 5. Stream frames and wait for finger touch */
+    /* 4. Stream frames and wait for finger touch */
     uint8_t frame_buf[SYNA_FRAME_BYTES];
     float *accumulated_contact = g_malloc0 (SYNA_OUTPUT_ROWS * SYNA_SAMPLE_BYTES * sizeof (float));
+    gboolean sensor_cleared = FALSE;
+    gboolean waiting_for_lift = FALSE;
+    int empty_consecutive_frames = 0;
+    int lift_frames = 0;
     gboolean finger_detected = FALSE;
     int contact_frames = 0;
     int idle_frames = 0;
@@ -456,10 +457,46 @@ syna_capture_finger_sample (FpiDeviceSyna00dc *self, GCancellable *cancellable, 
             }
             float rms = sqrtf (sum_sq / (float)(sizeof (dec)));
 
+            /* Phase 1: Ensure sensor is clear before accepting a new touch */
+            if (!sensor_cleared) {
+                if (rms > 15.0f) {
+                    empty_consecutive_frames = 0;
+                    if (!waiting_for_lift) {
+                        waiting_for_lift = TRUE;
+                        g_print ("\n>>> [SENSOR] >>> Finger still on sensor. Please lift your finger...\n");
+                        fflush (stdout);
+                    }
+                    lift_frames++;
+                    if (lift_frames > 600) { /* ~10 seconds timeout */
+                        g_set_error_literal (error, G_IO_ERROR, G_IO_ERROR_TIMED_OUT,
+                                             "Timed out waiting for finger to be lifted from sensor");
+                        break;
+                    }
+                    continue;
+                } else {
+                    empty_consecutive_frames++;
+                    if (empty_consecutive_frames >= 3) {
+                        sensor_cleared = TRUE;
+                        if (waiting_for_lift) {
+                            g_print (">>> [SENSOR] >>> Finger lifted! Ready.\n");
+                            fflush (stdout);
+                        }
+                        /* Sensor is confirmed empty: now prompt for finger touch */
+                        fpi_device_report_finger_status_changes (FP_DEVICE (self),
+                                                                 FP_FINGER_STATUS_NEEDED,
+                                                                 FP_FINGER_STATUS_NONE);
+                    }
+                    continue;
+                }
+            }
+
+            /* Phase 2: Sensor is clear, collect finger contact */
             if (rms > 15.0f) {
                 if (!finger_detected) {
                     finger_detected = TRUE;
-                    fpi_device_report_finger_status_changes (FP_DEVICE (self), FP_FINGER_STATUS_PRESENT, FP_FINGER_STATUS_NEEDED);
+                    fpi_device_report_finger_status_changes (FP_DEVICE (self),
+                                                             FP_FINGER_STATUS_PRESENT,
+                                                             FP_FINGER_STATUS_NEEDED);
                 }
                 for (size_t i = 0; i < sizeof (dec); i++) {
                     accumulated_contact[i] += (float)dec[i] - self->baseline[i];
@@ -467,11 +504,13 @@ syna_capture_finger_sample (FpiDeviceSyna00dc *self, GCancellable *cancellable, 
                 contact_frames++;
             } else if (finger_detected && contact_frames >= 10) {
                 /* Finger removed */
-                fpi_device_report_finger_status_changes (FP_DEVICE (self), FP_FINGER_STATUS_NONE, FP_FINGER_STATUS_PRESENT);
+                fpi_device_report_finger_status_changes (FP_DEVICE (self),
+                                                         FP_FINGER_STATUS_NONE,
+                                                         FP_FINGER_STATUS_PRESENT);
                 break;
             } else {
                 idle_frames++;
-                if (!finger_detected && idle_frames > 600) { /* ~15s timeout */
+                if (!finger_detected && idle_frames > 600) { /* ~10s timeout */
                     g_set_error_literal (error, G_IO_ERROR, G_IO_ERROR_TIMED_OUT, "Finger touch timed out");
                     break;
                 }
@@ -481,7 +520,7 @@ syna_capture_finger_sample (FpiDeviceSyna00dc *self, GCancellable *cancellable, 
 
     if (finger_detected && contact_frames >= 25) {
         fpi_device_report_finger_status_changes (FP_DEVICE (self), FP_FINGER_STATUS_NONE, FP_FINGER_STATUS_PRESENT);
-    } else if (!finger_detected) {
+    } else if (!finger_detected && sensor_cleared) {
         fpi_device_report_finger_status_changes (FP_DEVICE (self), FP_FINGER_STATUS_NONE, FP_FINGER_STATUS_NEEDED);
     }
 
