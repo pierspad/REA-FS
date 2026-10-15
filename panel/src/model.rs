@@ -118,7 +118,7 @@ impl State {
             Phase::Idle
         } else if self.op_started_at.is_none() {
             Phase::Preparing
-        } else if self.present && self.lift {
+        } else if self.lift {
             Phase::Lift
         } else if self.present {
             Phase::Hold
@@ -170,7 +170,7 @@ impl State {
                 if self.present && self.first_present_at.is_none() && !self.simulation {
                     self.first_present_at = elapsed;
                 }
-                if !self.present {
+                if self.needed && !self.present {
                     self.lift = false;
                 }
                 self.status = if self.simulation {
@@ -181,6 +181,8 @@ impl State {
                     } else {
                         "Rilascio simulato"
                     }
+                } else if self.lift {
+                    "Rimuovi il dito"
                 } else if self.present {
                     "Dito rilevato"
                 } else if self.needed {
@@ -270,6 +272,7 @@ impl State {
         self.active = false;
         self.needed = false;
         self.present = false;
+        self.lift = false;
         self.status = "Impossibile avviare la prova".into();
         self.detail = message;
     }
@@ -356,10 +359,17 @@ mod tests {
         assert_eq!(state.phase(), Phase::Hold);
         state.apply(json!({"type":"progress","run_id":"a","origin":"device","completed":1,"total":5}));
         assert_eq!(state.phase(), Phase::Lift);
+        // After progress, gdbus reports needed=false, present=false:
+        state.apply(json!({"type":"device_state","run_id":"a","origin":"device","needed":false,"present":false}));
+        assert_eq!(state.phase(), Phase::Lift, "must remain in Phase::Lift while needed=false");
+        // Only transitions back to Touch when needed=true and present=false:
         state.apply(json!({"type":"device_state","run_id":"a","origin":"device","needed":true,"present":false}));
         assert_eq!(state.phase(), Phase::Touch);
         state.apply(json!({"type":"retry_hint","run_id":"a","origin":"device","code":"enroll-finger-not-centered"}));
         assert!(state.hint.contains("centro"));
+        assert_eq!(state.phase(), Phase::Lift);
+        state.apply(json!({"type":"device_state","run_id":"a","origin":"device","needed":true,"present":false}));
+        assert_eq!(state.phase(), Phase::Touch);
         state.apply(json!({"type":"verify_result","run_id":"a","origin":"device","result":"verify-match","elapsed_seconds":3.2}));
         state.apply(json!({"type":"user_note","run_id":"a","origin":"user","text":"ok"}));
         state.apply(json!({"type":"completed","run_id":"a","exit_code":0,"result":"verify-match","elapsed_seconds":3.4}));

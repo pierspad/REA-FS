@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "plan_id": "fprintd-guided",
-  "revision": 2,
+  "revision": 3,
   "title": "REA-FS · Banco Prove e Gestione Impronte",
   "experiments": [
     {
@@ -70,37 +70,6 @@
       "category": "diagnostics",
       "raw_log": true,
       "next_steps": "Elenco impronte aggiornato."
-    },
-    {
-      "id": "simulation",
-      "title": "Dimostrazione simulata (Senza sensore)",
-      "instructions": "Simulazione dimostrativa dell'interfaccia: il sensore non viene aperto. Osserva gli stati oppure premi Interrompi.",
-      "argv": [
-        "python3",
-        "scripts/experiment-panel.py",
-        "simulate"
-      ],
-      "cwd": ".",
-      "timeout_seconds": 20,
-      "adapter": "simulation",
-      "category": "simulation",
-      "next_steps": "Dimostrazione grafica conclusa."
-    },
-    {
-      "id": "offline-checks",
-      "title": "Verifica e build driver",
-      "instructions": "Test offline e compilazione: nessuna impronta acquisita. Richiede dipendenze di sviluppo già installate.",
-      "argv": [
-        "python3",
-        "scripts/rea-fs.py",
-        "check"
-      ],
-      "cwd": ".",
-      "timeout_seconds": 600,
-      "adapter": "plain",
-      "category": "local_preparation",
-      "raw_log": true,
-      "next_steps": "Tutti i controlli offline superati."
     }
   ]
 }
