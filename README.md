@@ -2,7 +2,7 @@
 
 Un percorso assistito da agenti per indagare sensori di impronte non supportati e sviluppare driver per libfprint. L’utente prepara gli accessi, avvia il proprio agente e interviene quando serve un’azione fisica sul sensore.
 
-Questo repository contiene per ora documentazione e checklist operative. Non contiene ancora un orchestratore, una GUI o un driver nuovo; il funzionamento su un sensore va dimostrato con test hardware.
+Questo repository contiene documentazione, checklist operative e un decoder offline sperimentale. Non contiene ancora un orchestratore, una GUI o un driver nuovo; il funzionamento su un sensore va dimostrato con test hardware.
 
 ## 1. Prepara gli accessi
 
@@ -110,3 +110,15 @@ Le istruzioni fisiche vanno inviate quando il test è davvero in ascolto. Il sil
 Una GUI persistente potrà mostrare questi stessi stati, il test corrente e i comandi «eseguito» e «interrompi». È un’estensione futura; oggi l’interazione avviene tramite agente e terminale.
 
 Le tracce possono contenere dati biometrici. Concorda con l’agente cosa raccogliere prima delle acquisizioni. Sessioni e dati locali non vanno pubblicati automaticamente.
+
+## Analisi offline del flusso osservato
+
+`tools/raw_frames.py` legge il formato RAW verificato sul sensore USB 06cb:00dc di questa indagine: righe di 152 byte, 112 righe per frame, coppie adiacenti → 144×56 pixel. Valida intestazioni e contatori; non acquisisce dati dal dispositivo, non applica calibrazione o sottrazione della baseline e non è un driver. Vedi [risultati e limiti](docs/research-06cb-00dc.md).
+
+```sh
+python tools/raw_frames.py --input sessions/LA_TUA_SESSIONE/capture.bin \
+    --output sessions/LA_TUA_SESSIONE/frame.pgm --frame 0 --allow-partial-tail
+python -m unittest discover -v
+```
+
+L’output deve essere un file nuovo: viene creato con permessi 0600. Input massimo 64 MiB. Ometti `--allow-partial-tail` per rifiutare anche una coda incompleta; l’opzione non corregge frame corrotti e non cerca automaticamente l’allineamento. Conserva eventuali immagini biometriche nelle sessioni locali ignorate.

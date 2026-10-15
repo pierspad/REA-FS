@@ -71,3 +71,7 @@ Testing/
 /workspace/
 /sessions/
 /.rea-fs.local/
+
+# Python analysis tools
+__pycache__/
+*.pyc
