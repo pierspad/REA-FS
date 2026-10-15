@@ -46,6 +46,16 @@
 - [ ] Valutare separatamente esito della prova ed esito della chiusura: un exit code zero o una risposta di due byte non confermano la chiusura. Conservare lo status esatto; una query successiva riuscita prova la disponibilità di quel comando, non l’azzeramento del canale sicuro.
 - [ ] Rivedere le opzioni di log dei tool crittografici prima di eseguirli: alcuni riferimenti stampano chiavi private anche a livello INFO. Salvare credenziali fuori dai log e dai file tracciati, con permessi restrittivi.
 
+## Controlli emersi dalle acquisizioni RAW
+
+- [ ] Sincronizzare con un «pronto» prima della finestra di contatto; distinguere prompt inviato, evento misurato e azione confermata. Una prova senza contatto è una baseline utile.
+- [ ] Ricavare stride, intestazioni e contatori dal flusso: la larghezza nominale del programma può differire dalla riga effettivamente trasmessa.
+- [ ] Verificare parità delle letture ripetute sui dati locali; sensori correlati possono richiedere un ordine diverso. Più frame temporali non significano maggiore area acquisita.
+- [ ] Controllare separatamente firma OEM, TLS Finished, MAC, status applicativo, arresto acquisizione e close_notify. Chiudere anche sui ritorni anticipati.
+- [ ] Gestire la configurazione rimasta dalla prova precedente prima di reinizializzare. Annotare status esatti e verificare il percorso di pulizia OEM; non dedurre il significato dal solo numero.
+- [ ] Usare nomi unici e creazione esclusiva per le acquisizioni; limitare durata e dimensione, proteggere file e chiavi, conservare i tentativi falliti.
+- [ ] Distinguere segnale di contatto, immagine ricostruita e riconoscimento: ciascuno richiede una verifica propria.
+
 ## 4. Esperimento e implementazione
 
 - [ ] Confronta l’esperimento con l’ambito autorizzato: procedi direttamente se già coperto; chiedi solo il consenso mancante per acquisizioni sensibili o modifiche al dispositivo/sistema.
