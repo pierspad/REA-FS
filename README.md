@@ -25,13 +25,14 @@ Per leggere il progetto non servono account freedesktop, chiavi SSH o privilegi 
 | Prova hardware del 15 ottobre 2026 | Cinque appoggi, rilettura del template serializzato e una verifica genuina riuscita; nessuna stima affidabile di FAR/FRR |
 | Altri modelli o revisioni | Supporto da investigare; lo stesso marchio o VID/PID non garantisce compatibilità |
 
-Il prototipo Synaptics usa credenziali e dati OEM privati **assenti da un clone pulito**. Non è ancora un’installazione automatica per nuovi proprietari dello stesso sensore. Il successo riferito dall’utente nello sblocco KDE riguarda la versione precedentemente installata; la nuova build locale deve essere valutata separatamente.
+Il prototipo Synaptics usa credenziali e dati OEM privati **assenti da un clone pulito**. Non è ancora un’installazione automatica per nuovi proprietari dello stesso sensore. Enrollment a cinque appoggi e verifica sono riusciti anche attraverso fprintd. Un tentativo KDE è fallito prima del matching e il successivo è riuscito; le ulteriori correzioni di robustezza vanno provate separatamente sul dispositivo.
 
 ## Orientati nel progetto
 
 - [Procedura dell’agente](docs/agent-workflow.md): discovery, ricerca, esperimenti e checkpoint.
 - [Preferenze e autorizzazioni](docs/preferences.md): autonomia concordata, dati privati e delega.
 - [Guida completa al processo](docs/how-it-works.md): hardware, protocollo, immagini, matching, desktop e aspetti legali.
+- [Relinking e strada verso upstream](docs/relinking-and-upstream.md): confronto concreto con synaTudor, prove mancanti e decisioni.
 - [Audit e preparazione dei contributi](docs/audit-2026-10-15.md): cosa funziona, cosa manca e destinazione delle patch.
 - [Driver Synaptics: uso e limiti](docs/driver-installation.md).
 - [Ricerca Synaptics](docs/research-06cb-00dc.md), [progetto del driver](docs/design-06cb-00dc-driver.md) e [handover](docs/agent-handover.md): contesto storico, da leggere rispettando le correzioni successive.
