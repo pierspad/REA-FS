@@ -45,3 +45,9 @@ La suite della build locale ha riportato 5 test riusciti, 1 fallito e 34 saltati
 - [ ] Definire provenienza e distribuibilità delle configurazioni necessarie prima di proporre codice upstream.
 - [ ] Scegliere l’integrazione appropriata; sviluppare e compilare il driver seguendo le convenzioni del progetto scelto.
 - [ ] Verificare acquisizione ripetibile, enrollment e matching reali. Solo allora valutare PR/MR con l’utente.
+
+## Prova successiva con due appoggi
+
+Il flusso registra due contatti separati, con ritorno alla baseline fra i due. L’avvio precedente era stato rifiutato con status `0x0450` dopo pulizia e inizializzazione accettate; chiusura TLS confermata. Un reset USB seguito dallo stesso esperimento ha consentito la cattura. Il significato dello status e la causa precisa restano da isolare: due cicli di sola inizializzazione riusciti non provano che sia ripetibile l’intera acquisizione.
+
+Dieci finestre temporali prefissate dei due appoggi producono da 6 a 11 minutiae. Il controllo offline che confronta un’immagine con sé stessa passa la soglia 40; due finestre diverse dello stesso appoggio ottengono 23/40, e una coppia di acquisizioni distinte richieste con lo stesso dito ottiene 0/40. Questi confronti non passano. La pipeline corrente non dimostra quindi riconoscimento affidabile, anche quando il numero di minutiae supera il minimo computabile. I template dell’esperimento restano solo in memoria e non vengono serializzati.

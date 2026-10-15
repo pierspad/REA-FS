@@ -73,6 +73,9 @@
 - [ ] Se puoi ottenere direttamente gli eventi del test, non chiedere conferme ridondanti. Non riutilizzare risultati simulati come prove hardware.
 - [ ] Registra esito reale, errori, tentativi e riproducibilità, evitando dati biometrici nel report pubblico.
 
+- [ ] Ripetere l’intero percorso fino alla cattura: il successo di sola autenticazione/inizializzazione non garantisce che il comando di acquisizione successivo funzioni.
+- [ ] Verificare estrazione, coerenza delle caratteristiche e confronto tra appoggi indipendenti separatamente. Un self-match o un numero sufficiente di minutiae non dimostra riconoscimento; conservare soglia e score del test.
+
 ## 6. Valutazione e consegna
 
 - [ ] Aggiorna checkpoint dopo ogni fase e prima di attendere l’utente: fase, ultimo esito, processo attivo, prossimo comando e azione richiesta.
