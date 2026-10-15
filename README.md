@@ -15,6 +15,14 @@ cd REA-FS
 
 Per leggere il progetto non servono account freedesktop, chiavi SSH o privilegi amministrativi. Gli accessi per contribuire si preparano quando servono: [repository, identità e destinazioni](docs/repositories.md).
 
+## Pannello locale opzionale
+
+```sh
+python scripts/open-panel.py
+```
+
+La finestra egui legge un piano locale scritto dall’agente, mostra istruzioni e comandi e avvia soltanto la prova scelta con **Esegui**. Include stato di contatto quando disponibile, countdown, progressi, Interrompi e log privati leggibili dall’agente. Al primo avvio propone una simulazione dichiarata e controlli offline; serve Rust/Cargo per compilare. [Guida al pannello](docs/experiment-panel.md).
+
 ## Cosa è disponibile
 
 | Parte | Stato e limiti |
@@ -75,4 +83,4 @@ Il formato osservato ha righe da 152 byte ×112 = **17.024 byte per frame**; dop
 
 Con un client interattivo l’agente avvia un processo e osserva gli eventi prima di chiedere «APPOGGIA IL DITO». Con un client che non può interagire durante il comando prepara una finestra temporale con istruzioni e segnali locali già visibili all’utente; analizza poi l’intera registrazione, senza inventare conferme. [Dettagli operativi](docs/agent-workflow.md#modalità-del-client-interattiva-o-a-finestra).
 
-`workspace/`, `sessions/`, `.rea-fs.local/` e le credenziali locali sono ignorati. `.gitignore` non è una garanzia contro la pubblicazione accidentale: controllare sempre file tracciati e diff. Niente chiavi, template, scansioni o binari OEM nei contributi. Nessun orchestratore o GUI è necessario per seguire questo workflow. REA è un’integrazione opzionale: clonarlo non configura il suo MCP.
+`workspace/`, `sessions/`, `.rea-fs.local/` e le credenziali locali sono ignorati. `.gitignore` non è una garanzia contro la pubblicazione accidentale: controllare sempre file tracciati e diff. Niente chiavi, template, scansioni o binari OEM nei contributi. Il pannello egui è opzionale: il workflow resta utilizzabile anche solo con agente e terminale. REA è un’integrazione opzionale: clonarlo non configura il suo MCP.

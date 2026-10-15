@@ -1,0 +1,16 @@
+[package]
+name = "rea-fs-panel"
+version = "0.1.0"
+edition = "2024"
+license = "LGPL-2.1-only"
+description = "Local experiment panel for REA-FS"
+
+[dependencies]
+eframe = { version = "=0.37.0", default-features = false, features = ["default_fonts", "glow", "x11", "wayland"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[profile.release]
+opt-level = "s"
+lto = "thin"
+strip = true

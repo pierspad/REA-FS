@@ -118,3 +118,9 @@ Entrambe le modalità richiedono controllo dei prerequisiti, consenso già defin
 Usa `scripts/rea-fs.py init-session` per un checkpoint nuovo e `preflight` per i metadati locali; se esiste una sessione pertinente, riprendila invece di crearne un’altra. `check` esegue solo verifiche offline e build; i programmi diagnostici hardware non sono registrati fra i test Meson automatici.
 
 Per valutare il matcher separa appoggi di enrollment, sviluppo della soglia e verifica finale. Più finestre dello stesso contatto non sono appoggi indipendenti. Confrontare il massimo su più template cambia la distribuzione dei punteggi: misurare di nuovo anche le false accettazioni. Mantieni le etichette dei tentativi nel CSV privato descritto nel README; `summarize` non sceglie né modifica soglie. Un successo sullo schermo di blocco prova una specifica integrazione, non una FAR/FRR di popolazione.
+
+## Pannello locale degli esperimenti
+
+Se il client non consente interazione tempestiva, o l’utente preferisce una finestra dedicata, usare il pannello descritto in `docs/experiment-panel.md`. Preparare `plan.json` con istruzioni e comandi espliciti, salvandolo atomicamente; chiedere all’utente di aprire `python scripts/open-panel.py` e scegliere la prova. Il pannello non concede autorizzazioni: confrontare comunque categorie e ambito con le preferenze e il consenso in chat.
+
+Leggere il piano immutabile e `events.jsonl` del run effettivo, non l’ultima revisione del piano come se fosse quella eseguita. Distinguere eventi device, simulation e user. Non inserire chiavi, template, immagini o output arbitrario nei messaggi strutturati. `raw_log` è una scelta esplicita e può contenere dati sensibili del comando; controllare prima il logging del programma. Non avviare contemporaneamente un esperimento dal terminale/agente mentre il pannello controlla lo stesso sensore.

@@ -1,0 +1,18 @@
+{
+  "schema_version": 1, "plan_id": "fprintd-guided", "revision": 1,
+  "title": "Prove fprintd · richiede driver e credenziali già pronti",
+  "experiments": [
+    {
+      "id": "enroll-right-index", "title": "Registra indice destro",
+      "instructions": "Lascia libero il sensore durante l’apertura. Attendi lo stato Appoggia il dito; tra i passaggi rimuovilo completamente. Registra o sostituisce l’indice destro dell’utente corrente.",
+      "argv": ["fprintd-enroll", "-f", "right-index-finger"], "cwd": ".",
+      "timeout_seconds": 420, "adapter": "fprintd", "category": "biometric_capture"
+    },
+    {
+      "id": "verify-right-index", "title": "Verifica indice destro",
+      "instructions": "Lascia libero il sensore durante l’apertura. Quando richiesto, appoggia il dito indicato dall’agente per questo esperimento. Il template selezionato è l’indice destro.",
+      "argv": ["fprintd-verify", "-f", "right-index-finger"], "cwd": ".",
+      "timeout_seconds": 90, "adapter": "fprintd", "category": "biometric_capture"
+    }
+  ]
+}
