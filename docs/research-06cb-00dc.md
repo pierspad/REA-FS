@@ -73,3 +73,11 @@ Verifica offline, senza nuove catture, con `tools/placement_overlap.py` (solo Nu
 Conclusione provvisoria: la catena decodifica mode 2 + sottrazione baseline produce struttura di cresta ripetibile fra appoggi reali. Il limite osservato con NBIS/Bozorth è compatibile con l’area ridotta (144×56, circa 11×4 mm a 333 dpi) più che con una decodifica errata. Un singolo dito, nessun impostore e nessuna soglia calibrata: **non è una prova di riconoscimento** e non stima FAR/FRR.
 
 Prossimo passo suggerito: valutare un matcher per sensori piccoli (feature locali + verifica geometrica, enrollment multi-appoggio) invece di abbassare soglie NBIS; poi raccogliere più appoggi e almeno un dito diverso come controllo negativo, con consenso.
+
+## Distribuibilità dei blocchi OEM (verifica offline)
+
+- Init pairing (5796 B) e init cattura (4676 B): dopo un'intestazione in chiaro `02 00 00 01` l'entropia per blocchi da 1 KiB è 7,63–7,84 bit/byte, al livello di dati casuali. Sono quindi cifrati o compressi/firmati: non decodificabili né rigenerabili nel codice con le evidenze attuali.
+- Programma del modulo (1688 B, entropia 4,86) e costante di calibrazione (56 B, rampa 0x0c…0x43) sono strutturati: candidati a essere ricostruiti come tabelle documentate.
+- Persistenza dell'abbinamento: dopo reset USB la cattura (trial3, trial5) è riuscita senza nuovo `4f`, con la chiave host salvata. Persistenza dopo spegnimento/riavvio non ancora verificata.
+
+Conseguenza: un driver libfprint upstream dovrebbe distribuire o scaricare blob proprietari cifrati, cosa che il progetto non accetta. La via praticabile è un driver fuori albero (modulo TOD o servizio separato) che estrae i blob a runtime dal pacchetto Acer ufficiale fornito dall'utente, come fanno synaTudor e python-validity. L'upstream resta possibile solo con un accordo/licenza del vendor o se il sensore accettasse la cattura senza blob (non osservato: `02` senza init è rifiutato).
