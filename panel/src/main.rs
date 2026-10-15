@@ -4,6 +4,7 @@ use eframe::egui::{self, Color32, RichText, Stroke, Vec2};
 use model::{Envelope, State, shell_quote};
 use runner::Message;
 use std::path::PathBuf;
+use std::io::Read;
 use std::sync::mpsc::{self, Receiver, Sender, SyncSender};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
@@ -22,8 +23,18 @@ struct Panel {
     worker: Option<JoinHandle<()>>,
     loading: bool,
     last_poll: Instant,
+    plan_contents: Option<Vec<u8>>,
     closing: bool,
 }
+// Bound idle file reads by the same limit used by the validator. Validation is
+// still repeated by the backend immediately before spawning an experiment.
+fn read_plan_contents(session: &std::path::Path) -> Option<Vec<u8>> {
+    let file = std::fs::File::open(session.join("plan.json")).ok()?;
+    let mut contents = Vec::new();
+    file.take(256 * 1024 + 1).read_to_end(&mut contents).ok()?;
+    Some(contents)
+}
+
 impl Panel {
     fn new(cc: &eframe::CreationContext<'_>, root: PathBuf, session: PathBuf) -> Self {
         cc.egui_ctx.set_visuals(egui::Visuals::light());
@@ -34,6 +45,7 @@ impl Panel {
             style.visuals.hyperlink_color = Color32::from_rgb(25, 94, 200);
         });
         let (tx, rx) = mpsc::sync_channel(128);
+        let plan_contents = read_plan_contents(&session);
         runner::load(
             root.clone(),
             session.clone(),
@@ -41,6 +53,7 @@ impl Panel {
             cc.egui_ctx.clone(),
         );
         Self {
+            plan_contents,
             root,
             session,
             plan: None,
@@ -62,6 +75,7 @@ impl Panel {
             return;
         }
         self.loading = true;
+        self.plan_contents = read_plan_contents(&self.session);
         self.last_poll = Instant::now();
         runner::load(
             self.root.clone(),
@@ -153,7 +167,10 @@ impl Panel {
             }
         }
         if self.last_poll.elapsed() > Duration::from_secs(1) && !self.loading {
-            self.load(ctx);
+            self.last_poll = Instant::now();
+            if read_plan_contents(&self.session) != self.plan_contents {
+                self.load(ctx);
+            }
         }
         if ctx.input(|i| i.viewport().close_requested()) && self.worker.is_some() {
             ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
@@ -189,6 +206,7 @@ impl eframe::App for Panel {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
         egui::CentralPanel::default().show(ui,|ui| {
+            egui::ScrollArea::vertical().show(ui, |ui| {
             ui.add_space(8.0);
             ui.horizontal(|ui| {
                 ui.heading("REA-FS");ui.label("Esperimenti assistiti");
@@ -228,6 +246,10 @@ impl eframe::App for Panel {
                 });
                 let right=&mut columns[1];
                 right.vertical_centered(|ui| {
+                    ui.label(RichText::new(&task.title).size(18.0).strong());
+                    if task.adapter == "plain" {
+                        ui.small("Comando senza eventi di contatto: l’icona non segue il sensore.");
+                    }
                     let sim=if self.worker.is_some(){self.state.simulation}else{task.adapter=="simulation"};
                     if sim {ui.colored_label(Color32::from_rgb(143,85,8),RichText::new("Simulazione · nessun sensore aperto").strong());}
                     let color=if self.state.present{Color32::from_rgb(23,122,110)}else if self.state.needed{Color32::from_rgb(25,94,200)}else{Color32::from_rgb(142,156,174)};
@@ -241,22 +263,32 @@ impl eframe::App for Panel {
                     }
                     ui.add_space(16.0);
                     ui.horizontal(|ui| {
-                        if ui.add_enabled(self.worker.is_none() && self.error.is_empty(),egui::Button::new(RichText::new("Esegui").strong()).min_size(Vec2::new(110.0,40.0))).clicked(){self.start(&ctx);}
+                        if ui.add_enabled(self.worker.is_none() && self.error.is_empty(),egui::Button::new(RichText::new(format!("Esegui: {}", task.title)).strong()).min_size(Vec2::new(110.0,40.0))).clicked(){self.start(&ctx);}
                         if ui.add_enabled(self.worker.is_some(),egui::Button::new("Interrompi").min_size(Vec2::new(110.0,40.0))).clicked(){self.stop();}
                     });
-                    if self.worker.is_some() && ui.button("Conferma azione manuale").clicked() {
+                    if self.worker.is_some() && task.adapter != "plain" && ui.button("Conferma azione manuale").clicked() {
                         if let Some(tx)=&self.controls {let _=tx.send("confirm".into());}
                     }
-                    if self.worker.is_some(){ui.small("La conferma manuale resta distinta dagli eventi del sensore.");}
+                    if self.worker.is_some() && task.adapter != "plain" {ui.small("La conferma manuale resta distinta dagli eventi del sensore.");}
                 });
             });
             ui.add_space(16.0);ui.separator();
             if self.pending.is_some(){ui.colored_label(Color32::from_rgb(143,85,8),"Il piano è cambiato: la prova attiva conserva la revisione iniziale.");}
-            if !self.state.run_directory.is_empty(){ui.small(format!("Log privati: {}",self.state.run_directory));}
+            if !self.state.run_directory.is_empty(){
+                ui.small(format!("Log privati: {}",self.state.run_directory));
+                if self.worker.is_none() {
+                    ui.strong("Prossimo passo");
+                    ui.label(if self.state.next_steps.is_empty(){"Torna al tuo agente: chiedigli di leggere i log e continuare dal checkpoint."}else{&self.state.next_steps});
+                    if ui.button("Copia messaggio per l’agente").clicked() {
+                        ctx.copy_text(format!("Leggi {}/plan.json e {}/events.jsonl, riprendi il checkpoint e continua l’indagine. Distingui simulazione, eventi hardware e azioni dichiarate. Non ripetere la prova senza analizzarne l’esito. Indicazione del piano: {}",self.state.run_directory,self.state.run_directory,self.state.next_steps));
+                    }
+                }
+            }
             ui.collapsing("Eventi recenti",|ui| {
                 egui::ScrollArea::vertical().max_height(120.0).show(ui,|ui| {for event in self.state.events.iter().rev().take(12){ui.small(event);}});
             });
             ui.small("L’icona indica lo stato, non la copertura anatomica del dito.");
+            });
         });
     }
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
@@ -316,4 +348,24 @@ fn main() -> eframe::Result {
         options,
         Box::new(move |cc| Ok(Box::new(Panel::new(cc, root, session)))),
     )
+}
+
+#[cfg(test)]
+mod plan_watch_tests {
+    use super::*;
+    #[test]
+    fn reads_are_bounded_and_detect_content_changes() {
+        let directory = std::env::temp_dir().join(format!("rea-fs-watch-{}", std::process::id()));
+        std::fs::create_dir(&directory).unwrap();
+        let path = directory.join("plan.json");
+        assert!(read_plan_contents(&directory).is_none());
+        std::fs::write(&path, b"first").unwrap();
+        let first = read_plan_contents(&directory);
+        assert_eq!(first, read_plan_contents(&directory));
+        std::fs::write(&path, b"other").unwrap();
+        assert_ne!(first, read_plan_contents(&directory));
+        std::fs::write(&path, vec![b'x'; 300_000]).unwrap();
+        assert_eq!(read_plan_contents(&directory).unwrap().len(), 256 * 1024 + 1);
+        std::fs::remove_dir_all(directory).unwrap();
+    }
 }

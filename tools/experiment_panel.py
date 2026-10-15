@@ -35,6 +35,8 @@ def load_plan(path: Path, root: Path = ROOT) -> dict:
             if not isinstance(task.get(key), str) or not task[key].strip(): raise ValueError(f'experiment {key} must be nonempty')
         if task['id'] in ids: raise ValueError('duplicate experiment id')
         ids.add(task['id'])
+        if not isinstance(task.get('next_steps', ''), str) or len(task.get('next_steps', '')) > 2000:
+            raise ValueError('next_steps must be text up to 2000 characters')
         argv = task.get('argv')
         if not isinstance(argv, list) or not argv or not all(isinstance(x, str) and x and '\0' not in x for x in argv):
             raise ValueError('argv must be a nonempty string array')
@@ -220,7 +222,8 @@ def run_experiment(session_dir, experiment_id, cancel_on_eof=False, root=ROOT, e
             start_new_session=True)
         writer.emit('started', process_group=process.pid, argv=argv, cwd=str((root/task.get('cwd', '.')).resolve()),
                     timeout_seconds=task['timeout_seconds'], adapter=task['adapter'],
-                    instructions=task['instructions'], run_directory=str(writer.run_dir.resolve()))
+                    instructions=task['instructions'], next_steps=task.get('next_steps', ''),
+                    run_directory=str(writer.run_dir.resolve()))
         for channel, stream in [('stdout', process.stdout), ('stderr', process.stderr)]:
             threading.Thread(target=_reader, args=(stream, messages, channel), daemon=True).start()
         threading.Thread(target=_controls, args=(messages, cancel_on_eof, bridge_stop), daemon=True).start()

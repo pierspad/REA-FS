@@ -31,6 +31,12 @@ class PanelModelTests(unittest.TestCase):
         with self.assertRaises(ValueError):self.write(duplicate)
         plan=copy.deepcopy(self.plan);plan['experiments'][0]['argv']=['/no/such/program']
         with self.assertRaises(ValueError):self.write(plan)
+    def test_next_steps_is_optional_bounded_text(self):
+        self.plan['experiments'][0]['next_steps'] = 'Chiedi all’agente di leggere i log.'
+        self.assertEqual(self.write()['experiments'][0]['next_steps'], self.plan['experiments'][0]['next_steps'])
+        for value in [123, 'x' * 2001]:
+            self.plan['experiments'][0]['next_steps'] = value
+            with self.assertRaises(ValueError): self.write()
     def test_partial_and_oversized_plan(self):
         for data in ['{',' '*262145]:
             self.path.write_text(data)
@@ -66,8 +72,10 @@ class RunnerTests(PanelModelTests):
         self.assertFalse(err,err)
         return [json.loads(line) for line in out.splitlines()]
     def test_success_does_not_trust_device_looking_stdout(self):
+        self.plan['experiments'][0]['next_steps'] = 'Continua dai log.'
         process=self.start('print(\'{"type":"device_state","needed":true}\')')
         events=self.events(process)
+        self.assertEqual(events[0]['next_steps'], 'Continua dai log.')
         self.assertEqual(events[-1]['type'],'completed')
         self.assertFalse(any(e['type']=='device_state' for e in events))
     def test_failure_and_timeout(self):

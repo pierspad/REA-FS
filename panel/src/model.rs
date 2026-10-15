@@ -33,6 +33,7 @@ pub struct State {
     pub run_id: String,
     pub status: String,
     pub detail: String,
+    pub next_steps: String,
     pub needed: bool,
     pub present: bool,
     pub simulation: bool,
@@ -50,6 +51,7 @@ impl Default for State {
             run_id: String::new(),
             status: "Pronto per iniziare".into(),
             detail: String::new(),
+            next_steps: String::new(),
             needed: false,
             present: false,
             simulation: false,
@@ -73,6 +75,7 @@ impl State {
             self.simulation = event["adapter"] == "simulation";
             self.status = "Esperimento in corso".into();
             self.detail = event["instructions"].as_str().unwrap_or("").into();
+            self.next_steps = event["next_steps"].as_str().unwrap_or("").into();
             self.timeout = event["timeout_seconds"].as_f64().unwrap_or(0.0);
             self.started = Some(Instant::now());
             self.run_directory = event["run_directory"].as_str().unwrap_or("").into();
@@ -127,6 +130,11 @@ impl State {
                     .or_else(|| event["reason"].as_str())
                     .unwrap_or("")
                     .into();
+                if self.detail.is_empty() {
+                    if let Some(code) = event["exit_code"].as_i64() {
+                        self.detail = format!("Il comando è terminato con codice {code}. Dettagli nei log privati.");
+                    }
+                }
                 if event["cleanup_not_confirmed"] == true {
                     self.detail.push_str(" · Cleanup hardware non confermato");
                 }
@@ -176,6 +184,21 @@ mod tests {
         assert!(!state.needed);
         state.apply(json!({"type":"device_state","run_id":"a","origin":"device","needed":true,"present":false}));
         assert!(state.needed);
+    }
+    #[test]
+    fn plain_command_completion_explains_exit_code() {
+        let mut state = State::default();
+        state.apply(json!({"type":"started","run_id":"a","adapter":"plain"}));
+        state.apply(json!({"type":"completed","run_id":"a","exit_code":0}));
+        assert!(state.detail.contains("0"));
+        assert!(!state.detail.is_empty());
+    }
+    #[test]
+    fn next_steps_survive_the_terminal_event() {
+        let mut state = State::default();
+        state.apply(json!({"type":"started","run_id":"a","next_steps":"Continua dai log."}));
+        state.apply(json!({"type":"failed","run_id":"a","exit_code":2}));
+        assert_eq!(state.next_steps, "Continua dai log.");
     }
     #[test]
     fn copy_command_quotes_shell_metacharacters() {
