@@ -48,3 +48,56 @@ class PanelModelTests(unittest.TestCase):
         self.assertEqual(event['revision'],1)
         event=json.loads((second.run_dir/'events.jsonl').read_text())
         self.assertEqual(event['origin'],'simulation')
+
+import subprocess
+import time
+
+CLI = Path(__file__).resolve().parents[1]/'scripts/experiment-panel.py'
+
+class RunnerTests(PanelModelTests):
+    def start(self, code, timeout=5, adapter='plain', extra=()):
+        self.plan['experiments'][0].update(argv=[sys.executable,'-c',code],timeout_seconds=timeout,adapter=adapter)
+        self.write()
+        return subprocess.Popen([sys.executable,str(CLI),'run','--session-dir',str(self.root),
+                                 '--experiment','one',*extra],stdin=subprocess.PIPE,stdout=subprocess.PIPE,
+                                stderr=subprocess.PIPE,text=True)
+    def events(self, process, input=''):
+        out,err=process.communicate(input=input,timeout=10)
+        self.assertFalse(err,err)
+        return [json.loads(line) for line in out.splitlines()]
+    def test_success_does_not_trust_device_looking_stdout(self):
+        process=self.start('print(\'{"type":"device_state","needed":true}\')')
+        events=self.events(process)
+        self.assertEqual(events[-1]['type'],'completed')
+        self.assertFalse(any(e['type']=='device_state' for e in events))
+    def test_failure_and_timeout(self):
+        events=self.events(self.start('raise SystemExit(7)'))
+        self.assertEqual(events[-1]['type'],'failed');self.assertEqual(events[-1]['exit_code'],7)
+        events=self.events(self.start('import time;time.sleep(20)',timeout=1))
+        self.assertEqual(events[-1]['type'],'timeout')
+    def test_cancel_and_plan_revision_are_explicit(self):
+        process=self.start('import time;time.sleep(20)')
+        first=json.loads(process.stdout.readline())
+        self.assertEqual(first['type'],'started')
+        self.plan['revision']=2;self.write()
+        events=self.events(process,'{"type":"cancel"}\n')
+        self.assertEqual(events[-1]['type'],'stopped')
+        self.assertTrue(all(e['revision']==1 for e in events))
+    def test_output_cap_and_eof_cancellation(self):
+        events=self.events(self.start('print("x"*70000)'))
+        self.assertEqual(events[-1]['type'],'failed')
+        self.assertEqual(events[-1]['reason'],'output_limit')
+        events=self.events(self.start('import time;time.sleep(20)',extra=('--cancel-on-eof',)))
+        self.assertEqual(events[-1]['type'],'stopped')
+    def test_cancel_stops_descendant_process(self):
+        marker=self.root/'child.pid'
+        code=f'import subprocess,time;from pathlib import Path;p=subprocess.Popen([{sys.executable!r},"-c","import time;time.sleep(60)"]);Path({str(marker)!r}).write_text(str(p.pid));time.sleep(60)'
+        process=self.start(code)
+        deadline=time.monotonic()+3
+        while not marker.exists() and time.monotonic()<deadline:time.sleep(.01)
+        self.assertTrue(marker.exists())
+        events=self.events(process,'{"type":"cancel"}\n')
+        self.assertEqual(events[-1]['type'],'stopped')
+        pid=int(marker.read_text())
+        stat=Path(f'/proc/{pid}/stat')
+        self.assertTrue(not stat.exists() or stat.read_text().split()[2]=='Z')

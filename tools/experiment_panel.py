@@ -1,7 +1,7 @@
 """Versioned local experiment plans and private events (no implicit execution)."""
 from datetime import datetime, timezone
 import json
-import math
+import hashlib
 import os
 from pathlib import Path
 import shutil
@@ -79,3 +79,200 @@ class EventWriter:
         return event
 
     def close(self): self.stream.close()
+
+# The runner never infers device events from arbitrary command output.
+import queue
+import re
+import signal
+import subprocess
+import threading
+
+RAW_LIMIT = 4 * 1024 * 1024
+
+
+def _reader(stream, messages, channel):
+    try:
+        while True:
+            line = stream.readline(MAX_LINE + 1)
+            if not line: break
+            if len(line) > MAX_LINE:
+                messages.put(('overflow', channel, b'')); break
+            messages.put(('line', channel, line))
+    finally:
+        stream.close()
+        messages.put(('eof', channel, b''))
+
+
+def _controls(messages, cancel_on_eof):
+    try:
+        for line in sys.stdin:
+            if len(line) > 4096: continue
+            try: value = json.loads(line)
+            except ValueError: continue
+            if isinstance(value, dict) and value.get('type') in ('cancel', 'confirm'):
+                messages.put(('control', value['type'], b''))
+    finally:
+        if cancel_on_eof: messages.put(('control', 'cancel', b''))
+
+
+def _group_exists(pid):
+    try: os.killpg(pid, 0); return True
+    except ProcessLookupError: return False
+
+
+def _stop_group(process):
+    forced = False
+    for sig, grace in [(signal.SIGINT, 2.0), (signal.SIGTERM, 1.0), (signal.SIGKILL, .1)]:
+        if not _group_exists(process.pid): break
+        try: os.killpg(process.pid, sig)
+        except ProcessLookupError: break
+        if sig != signal.SIGINT: forced = True
+        try: process.wait(timeout=grace)
+        except subprocess.TimeoutExpired: continue
+        # A reaped leader can leave children: send remaining signals to the group.
+        if not _group_exists(process.pid): break
+        time.sleep(.05)
+    try: process.wait(timeout=1)
+    except subprocess.TimeoutExpired: forced = True
+    return forced
+
+
+def _simulation_event(writer, line):
+    try: data = json.loads(line)
+    except (ValueError, UnicodeError): return
+    if not isinstance(data, dict): return
+    kind = data.get('type')
+    if kind == 'device_state' and type(data.get('needed')) is bool and type(data.get('present')) is bool:
+        writer.emit(kind, 'simulation', needed=data['needed'], present=data['present'])
+    elif kind == 'progress' and type(data.get('completed')) is int and type(data.get('total')) is int:
+        if 0 <= data['completed'] <= data['total'] <= 100:
+            writer.emit(kind, 'simulation', completed=data['completed'], total=data['total'])
+    elif kind == 'instruction' and isinstance(data.get('text'), str):
+        writer.emit(kind, 'simulation', text=data['text'][:2000])
+
+
+def _fprint_state(messages, stop, object_path):
+    if not shutil.which('gdbus'):
+        messages.put(('bridge_missing', '', b'')); return
+    previous = None
+    while not stop.is_set():
+        try:
+            result = subprocess.run(['gdbus', 'call', '--system', '--dest', 'net.reactivated.Fprint',
+                '--object-path', object_path, '--method',
+                'org.freedesktop.DBus.Properties.GetAll', 'net.reactivated.Fprint.Device'],
+                capture_output=True, text=True, timeout=1)
+            values = {}
+            for key in ('finger-needed', 'finger-present'):
+                match = re.search(r"'"+key+r"': <(true|false)>", result.stdout)
+                if match: values[key] = match[1] == 'true'
+            stage = re.search(r"'num-enroll-stages': <(\d+)>", result.stdout)
+            if len(values) == 2:
+                current = (values['finger-needed'], values['finger-present'], int(stage[1]) if stage else 0)
+                if current != previous:
+                    messages.put(('device', current, b'')); previous = current
+        except (OSError, subprocess.TimeoutExpired): pass
+        stop.wait(.5)
+
+
+def plan_fingerprint(plan):
+    return hashlib.sha256(json.dumps(plan, sort_keys=True, separators=(',', ':'), ensure_ascii=False).encode()).hexdigest()
+
+
+def run_experiment(session_dir, experiment_id, cancel_on_eof=False, root=ROOT, expected_fingerprint=None):
+    plan = load_plan(session_dir/'plan.json', root)
+    if expected_fingerprint and plan_fingerprint(plan) != expected_fingerprint:
+        raise ValueError('plan changed after preview; reload and review before running')
+    task = next((x for x in plan['experiments'] if x['id'] == experiment_id), None)
+    if task is None: raise ValueError('experiment not found')
+    writer = EventWriter(session_dir, plan, task)
+    argv = [arg.replace('{run_dir}', str(writer.run_dir.resolve())) for arg in task['argv']]
+    messages = queue.Queue(maxsize=128)
+    bridge_stop = threading.Event()
+    process = None
+    raw = None
+    exit_code = 1
+    forced = False
+    try:
+        process = subprocess.Popen(argv, cwd=(root/task.get('cwd', '.')).resolve(),
+            stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            start_new_session=True)
+        writer.emit('started', argv=argv, cwd=str((root/task.get('cwd', '.')).resolve()),
+                    timeout_seconds=task['timeout_seconds'], adapter=task['adapter'],
+                    instructions=task['instructions'], run_directory=str(writer.run_dir.resolve()))
+        for channel, stream in [('stdout', process.stdout), ('stderr', process.stderr)]:
+            threading.Thread(target=_reader, args=(stream, messages, channel), daemon=True).start()
+        threading.Thread(target=_controls, args=(messages, cancel_on_eof), daemon=True).start()
+        if task.get('raw_log'):
+            fd = os.open(writer.run_dir/'output.log', os.O_WRONLY|os.O_CREAT|os.O_EXCL, 0o600)
+            raw = os.fdopen(fd, 'wb')
+        bridge_started = False
+        deadline = time.monotonic()+task['timeout_seconds']
+        reason = None
+        raw_size = 0
+        streams = 2
+        exited_at = None
+        completed = 0
+        total = 0
+        device_result = None
+        while True:
+            if time.monotonic() >= deadline: reason = 'timeout'; break
+            try: kind, channel, payload = messages.get(timeout=.02)
+            except queue.Empty: kind = None
+            if kind == 'control':
+                if channel == 'cancel': reason = 'cancel'; break
+                writer.emit('user_confirmation', 'user', confirmed=True)
+            elif kind == 'overflow': reason = 'output_limit'; break
+            elif kind == 'eof': streams -= 1
+            elif kind == 'bridge_missing':
+                writer.emit('limitation', text='gdbus unavailable: contact state cannot be observed')
+            elif kind == 'device':
+                needed, present, total = channel
+                writer.emit('device_state','device',needed=needed,present=present)
+            elif kind == 'line':
+                if raw:
+                    raw_size += len(payload)
+                    if raw_size > RAW_LIMIT: reason = 'output_limit'; break
+                    raw.write(payload); raw.flush()
+                if channel == 'stdout' and task['adapter'] == 'simulation':
+                    _simulation_event(writer, payload)
+                if channel == 'stdout' and task['adapter'] == 'fprintd':
+                    text = payload.decode('utf-8','replace').strip()
+                    if not bridge_started:
+                        device_path = re.fullmatch(r'Using device (/net/reactivated/Fprint/Device/\d+)', text)
+                        if device_path:
+                            threading.Thread(target=_fprint_state,args=(messages,bridge_stop,device_path[1]),daemon=True).start()
+                            bridge_started = True
+                    if text == 'Enroll result: enroll-stage-passed':
+                        completed += 1
+                        writer.emit('progress','device',completed=completed,total=total)
+                    elif text == 'Enroll result: enroll-completed':
+                        writer.emit('progress','device',completed=total or completed+1,total=total or completed+1)
+                        device_result = 'enroll-completed'
+                    elif text.startswith('Verify result: '):
+                        status = text.split(': ',1)[1].split()[0]
+                        if status in ('verify-match','verify-no-match'): device_result = status
+            if process.poll() is not None:
+                if exited_at is None: exited_at = time.monotonic()
+                if streams <= 0 or time.monotonic()-exited_at > .5: break
+        bridge_stop.set()
+        if reason or _group_exists(process.pid):
+            writer.emit('stopping', reason=reason or 'remaining_processes')
+            forced = _stop_group(process)
+        else: process.wait()
+        if reason:
+            terminal = 'timeout' if reason == 'timeout' else 'stopped' if reason == 'cancel' else 'failed'
+            writer.emit(terminal, reason=reason, exit_code=process.returncode,
+                        cleanup_not_confirmed=True, forced=forced)
+        else:
+            exit_code = process.returncode
+            writer.emit('completed' if exit_code == 0 else 'failed', exit_code=exit_code,
+                        result=device_result, cleanup_not_confirmed=forced)
+        return 0 if not reason and exit_code == 0 else 1
+    except (OSError, ValueError) as exc:
+        if process and _group_exists(process.pid): _stop_group(process)
+        writer.emit('failed', reason='backend_error', message=str(exc), cleanup_not_confirmed=True)
+        return 1
+    finally:
+        bridge_stop.set()
+        if raw: raw.close()
+        writer.close()
