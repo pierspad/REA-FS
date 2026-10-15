@@ -116,3 +116,10 @@ test('timing_tests', test_timing_bin)
 test_status_bin = executable('test_status', sources: 'tests/test_status.c',
     include_directories: driver_includes)
 test('status_tests', test_status_bin)
+
+test_pipeline_bin = executable('test_pipeline',
+    sources: ['tests/test_pipeline.c', 'src/syna_matcher.c'],
+    include_directories: driver_includes,
+    dependencies: [m_dep])
+test('pipeline_tests', test_pipeline_bin)
+
