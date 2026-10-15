@@ -20,7 +20,7 @@ def load_plan(path: Path, root: Path = ROOT) -> dict:
         content = stream.read(MAX_PLAN + 1)
     if len(content) > MAX_PLAN: raise ValueError('plan exceeds 256 KiB')
     try: plan = json.loads(content)
-    except (ValueError, UnicodeError) as exc: raise ValueError('plan is incomplete or invalid JSON') from exc
+    except (ValueError, UnicodeError, RecursionError) as exc: raise ValueError('plan is incomplete or invalid JSON') from exc
     if not isinstance(plan, dict) or type(plan.get('schema_version')) is not int or plan['schema_version'] != 1:
         raise ValueError('schema_version must be 1')
     for key in ('plan_id', 'title'):
@@ -170,6 +170,7 @@ def _fprint_state(messages, stop, object_path):
     if not shutil.which('gdbus'):
         messages.put(('bridge_missing', '', b'')); return
     previous = None
+    reported_unavailable = False
     while not stop.is_set():
         try:
             result = subprocess.run(['gdbus', 'call', '--system', '--dest', 'net.reactivated.Fprint',
@@ -185,7 +186,13 @@ def _fprint_state(messages, stop, object_path):
                 current = (values['finger-needed'], values['finger-present'], int(stage[1]) if stage else 0)
                 if current != previous:
                     messages.put(('device', current, b'')); previous = current
-        except (OSError, subprocess.TimeoutExpired): pass
+            elif not reported_unavailable:
+                messages.put(('limitation', 'Proprietà di contatto non disponibili: attendi gli eventi del comando o interrompi la prova', b''))
+                reported_unavailable = True
+        except (OSError, subprocess.TimeoutExpired):
+            if not reported_unavailable:
+                messages.put(('limitation', 'Lettura dello stato D-Bus non riuscita', b''))
+                reported_unavailable = True
         stop.wait(.5)
 
 
@@ -239,6 +246,8 @@ def run_experiment(session_dir, experiment_id, cancel_on_eof=False, root=ROOT, e
                 writer.emit('user_confirmation', 'user', confirmed=True)
             elif kind == 'overflow': reason = 'output_limit'; break
             elif kind == 'eof': streams -= 1
+            elif kind == 'limitation':
+                writer.emit('limitation', text=channel)
             elif kind == 'bridge_missing':
                 writer.emit('limitation', text='gdbus unavailable: contact state cannot be observed')
             elif kind == 'device':
@@ -298,3 +307,17 @@ def run_experiment(session_dir, experiment_id, cancel_on_eof=False, root=ROOT, e
         bridge_stop.set()
         if raw: raw.close()
         writer.close()
+
+
+def prepare_session(session_dir: Path, template: Path) -> bool:
+    """Install a starter plan only when none exists; never launch experiments."""
+    session_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+    target = session_dir/'plan.json'
+    try: fd = os.open(target, os.O_WRONLY|os.O_CREAT|os.O_EXCL, 0o600)
+    except FileExistsError: return False
+    try:
+        with os.fdopen(fd, 'wb') as stream: stream.write(template.read_bytes())
+    except OSError:
+        target.unlink(missing_ok=True)
+        raise
+    return True

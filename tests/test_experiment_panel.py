@@ -125,3 +125,16 @@ class RunnerTests(PanelModelTests):
         with self.assertRaises(ValueError):self.write(plan)
         plan=copy.deepcopy(self.plan);plan['revision']=2**80
         with self.assertRaises(ValueError):self.write(plan)
+
+
+class LauncherTests(unittest.TestCase):
+    def test_starter_plan_is_private_and_never_replaces_agent_plan(self):
+        from tools.experiment_panel import prepare_session
+        with tempfile.TemporaryDirectory() as tmp:
+            session=Path(tmp)/'panel'
+            template=Path(tmp)/'example.json';template.write_text('{"example":true}')
+            self.assertTrue(prepare_session(session,template))
+            self.assertEqual((session/'plan.json').stat().st_mode&0o777,0o600)
+            (session/'plan.json').write_text('keep my plan')
+            self.assertFalse(prepare_session(session,template))
+            self.assertEqual((session/'plan.json').read_text(),'keep my plan')

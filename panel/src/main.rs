@@ -221,7 +221,7 @@ impl eframe::App for Panel {
                 if task.raw_log {left.colored_label(Color32::from_rgb(143,85,8),"Questa prova salva anche l’output grezzo in un file privato.");}
                 left.add_space(10.0);
                 let command=task.argv.iter().map(|a|shell_quote(a)).collect::<Vec<_>>().join(" ");
-                left.collapsing("Comando e directory",|ui| {
+                egui::CollapsingHeader::new("Comando e directory").default_open(true).show(left,|ui| {
                     ui.monospace(&command);ui.monospace(self.root.join(&task.cwd).display().to_string());
                     ui.small(format!("Categoria: {}",task.category));
                     if ui.button("Copia comando").clicked(){ui.ctx().copy_text(command.clone());}
