@@ -12,7 +12,7 @@ ninja -C drivers/syna_tod/build
 meson test -C drivers/syna_tod/build --print-errorlogs
 ```
 
-Se la build esiste, iniziare da Ninja. Sei suite C: decoder, matcher, record crittografici/PRF, caricatore OEM con fixture sintetiche template e calcolo dei timeout. Non accedono al sensore e non richiedono chiavi reali. Un test PRF deterministico e un roundtrip non sono validazione indipendente del protocollo; la suite non costituisce un audit crittografico.
+Se la build esiste, iniziare da Ninja. Sette suite C: decoder, matcher, record crittografici/PRF, caricatore OEM con fixture sintetiche template, calcolo dei timeout e status applicativi. Non accedono al sensore e non richiedono chiavi reali. Un test PRF deterministico e un roundtrip non sono validazione indipendente del protocollo; la suite non costituisce un audit crittografico.
 
 ## Materiale privato necessario
 
@@ -76,3 +76,7 @@ Il dito da appoggiare è deciso dall’esperimento: `-f right-index-finger` sele
 - KDE: primo tentativo fallito mentre il driver attendeva il sensore libero (`clear=0`, nessun confronto); successivo riuscito riferito dall’utente in circa 4 s, corroborato da score 0,874 e overlap 75,1% nel log.
 
 Non è ancora dimostrata affidabilità quotidiana. Il primo fallimento resta da isolare; il feedback di contatto non è risultato visibile all’utente nella schermata KDE. Verificare inoltre riavvio, sospensione, cancellazione e più tentativi indipendenti. Queste prove non stimano FAR/FRR di popolazione e non dimostrano resistenza a impronte contraffatte.
+
+## Ulteriori correzioni di robustezza
+
+Il driver ora richiede status applicativo zero per i comandi, ammettendo `0x0491` soltanto per cleanup `1a` secondo le evidenze raccolte. Una risposta USB/TLS valida con status di rifiuto non viene più considerata successo; gli errori dello stop non vengono più ignorati quando la cattura sarebbe altrimenti riuscita. I record cifrati sono separati per fase: Finished richiede handshake, il canale applicativo richiede application data e versione attesa. Queste modifiche hanno regressioni offline e build riuscite; non costituiscono una nuova prova hardware né un audit completo del protocollo.

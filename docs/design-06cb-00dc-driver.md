@@ -5,7 +5,7 @@ Stato: progetto storico, in parte implementato nel modulo TOD. Il bootstrap pubb
 ## Vincoli verificati
 
 - Inizializzazioni OEM opache: **diritti di distribuzione da chiarire**, non deducibili da cifratura o firma. Nel prototipo sono dati privati ottenuti dal pacchetto Acer ufficiale (`5.5.2.1124`, SHA256 in checkpoint) scaricato o fornito dall'utente.
-- Nessuna flash utente sul sensore (0 partizioni) → template e chiave host vanno salvati sul PC, permessi 0600.
+- Le query documentate riportano 0 partizioni: non provano l’assenza fisica di memoria. Il prototipo conserva template e chiave host sul PC con accessi restrittivi.
 - Matching sull'host; area 144×56 (~11×4 mm ipotizzati): NBIS/Bozorth non è sufficiente da solo.
 
 ## Architettura scelta: driver fuori albero
