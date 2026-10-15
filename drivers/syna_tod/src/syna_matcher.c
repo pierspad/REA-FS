@@ -11,94 +11,155 @@
 #define IMG_H SYNA_OUTPUT_ROWS  /* 56 */
 #define IMG_W SYNA_OUTPUT_COLS  /* 144 */
 #define FFT_H 128
-#define FFT_W 512
+#define FFT_W 256
 
 typedef struct {
     float r;
     float i;
 } Complex;
 
-static void fft_radix2(Complex *x, int n, int invert)
+/* Precomputed Twiddle Factors and Bit Reversal Tables */
+static Complex twiddles_512[512], twiddles_inv_512[512];
+static Complex twiddles_256[256], twiddles_inv_256[256];
+static Complex twiddles_128[128], twiddles_inv_128[128];
+static Complex twiddles_64[64],   twiddles_inv_64[64];
+static int bitrev_512[512], bitrev_256[256], bitrev_128[128], bitrev_64[64];
+static int tables_initialized = 0;
+
+static void init_tables(void)
 {
-    for (int i = 1, j = 0; i < n; i++) {
-        int bit = n >> 1;
-        for (; j & bit; bit >>= 1) {
-            j ^= bit;
-        }
-        j ^= bit;
+    if (tables_initialized) return;
+
+    for (int i = 0; i < 512; i++) {
+        int rev = 0;
+        for (int b = 0; b < 9; b++) if (i & (1 << b)) rev |= (1 << (8 - b));
+        bitrev_512[i] = rev;
+        float a = -2.0f * (float)M_PI * (float)i / 512.0f;
+        twiddles_512[i].r = cosf(a); twiddles_512[i].i = sinf(a);
+        twiddles_inv_512[i].r = cosf(-a); twiddles_inv_512[i].i = sinf(-a);
+    }
+    for (int i = 0; i < 256; i++) {
+        int rev = 0;
+        for (int b = 0; b < 8; b++) if (i & (1 << b)) rev |= (1 << (7 - b));
+        bitrev_256[i] = rev;
+        float a = -2.0f * (float)M_PI * (float)i / 256.0f;
+        twiddles_256[i].r = cosf(a); twiddles_256[i].i = sinf(a);
+        twiddles_inv_256[i].r = cosf(-a); twiddles_inv_256[i].i = sinf(-a);
+    }
+    for (int i = 0; i < 128; i++) {
+        int rev = 0;
+        for (int b = 0; b < 7; b++) if (i & (1 << b)) rev |= (1 << (6 - b));
+        bitrev_128[i] = rev;
+        float a = -2.0f * (float)M_PI * (float)i / 128.0f;
+        twiddles_128[i].r = cosf(a); twiddles_128[i].i = sinf(a);
+        twiddles_inv_128[i].r = cosf(-a); twiddles_inv_128[i].i = sinf(-a);
+    }
+    for (int i = 0; i < 64; i++) {
+        int rev = 0;
+        for (int b = 0; b < 6; b++) if (i & (1 << b)) rev |= (1 << (5 - b));
+        bitrev_64[i] = rev;
+        float a = -2.0f * (float)M_PI * (float)i / 64.0f;
+        twiddles_64[i].r = cosf(a); twiddles_64[i].i = sinf(a);
+        twiddles_inv_64[i].r = cosf(-a); twiddles_inv_64[i].i = sinf(-a);
+    }
+
+    tables_initialized = 1;
+}
+
+static inline void fft_radix2_fast(Complex *x, int n, int invert, const int *bitrev, const Complex *twiddles)
+{
+    for (int i = 0; i < n; i++) {
+        int j = bitrev[i];
         if (i < j) {
-            Complex temp = x[i];
-            x[i] = x[j];
-            x[j] = temp;
+            Complex tmp = x[i]; x[i] = x[j]; x[j] = tmp;
         }
     }
 
     for (int len = 2; len <= n; len <<= 1) {
-        float angle = 2.0f * (float)M_PI / (float)len * (invert ? -1.0f : 1.0f);
-        Complex wlen = { cosf(angle), sinf(angle) };
+        int half = len >> 1;
+        int step = n / len;
         for (int i = 0; i < n; i += len) {
-            Complex w = { 1.0f, 0.0f };
-            for (int j = 0; j < len / 2; j++) {
+            for (int j = 0; j < half; j++) {
+                Complex w = twiddles[j * step];
+                Complex v;
+                v.r = x[i + j + half].r * w.r - x[i + j + half].i * w.i;
+                v.i = x[i + j + half].r * w.i + x[i + j + half].i * w.r;
+
                 Complex u = x[i + j];
-                Complex v = {
-                    x[i + j + len / 2].r * w.r - x[i + j + len / 2].i * w.i,
-                    x[i + j + len / 2].r * w.i + x[i + j + len / 2].i * w.r
-                };
                 x[i + j].r = u.r + v.r;
                 x[i + j].i = u.i + v.i;
-                x[i + j + len / 2].r = u.r - v.r;
-                x[i + j + len / 2].i = u.i - v.i;
-
-                float next_wr = w.r * wlen.r - w.i * wlen.i;
-                float next_wi = w.r * wlen.i + w.i * wlen.r;
-                w.r = next_wr;
-                w.i = next_wi;
+                x[i + j + half].r = u.r - v.r;
+                x[i + j + half].i = u.i - v.i;
             }
         }
     }
 
     if (invert) {
-        float inv_n = 1.0f / (float)n;
+        float inv = 1.0f / (float)n;
         for (int i = 0; i < n; i++) {
-            x[i].r *= inv_n;
-            x[i].i *= inv_n;
+            x[i].r *= inv;
+            x[i].i *= inv;
         }
     }
 }
 
-static void fft2d(Complex *grid, int rows, int cols, int invert)
+static void fft2d_fast(Complex *grid, int rows, int cols, int invert, Complex *scratch)
 {
-    Complex *buf = malloc((rows > cols ? rows : cols) * sizeof(Complex));
-    if (!buf) return;
+    const int *bitrev_r = (rows == 128) ? bitrev_128 : (rows == 64 ? bitrev_64 : bitrev_512);
+    const int *bitrev_c = (cols == 256) ? bitrev_256 : (cols == 512 ? bitrev_512 : bitrev_128);
+    const Complex *tw_r = invert ? ((rows == 128) ? twiddles_inv_128 : twiddles_inv_64)
+                                 : ((rows == 128) ? twiddles_128 : twiddles_64);
+    const Complex *tw_c = invert ? ((cols == 256) ? twiddles_inv_256 : (cols == 512 ? twiddles_inv_512 : twiddles_inv_128))
+                                 : ((cols == 256) ? twiddles_256 : (cols == 512 ? twiddles_512 : twiddles_128));
 
-    /* Rows */
     for (int r = 0; r < rows; r++) {
-        fft_radix2(&grid[r * cols], cols, invert);
+        fft_radix2_fast(&grid[r * cols], cols, invert, bitrev_c, tw_c);
     }
 
-    /* Columns */
+    const int BS = 16;
+    for (int r = 0; r < rows; r += BS) {
+        for (int c = 0; c < cols; c += BS) {
+            int r_end = (r + BS < rows) ? r + BS : rows;
+            int c_end = (c + BS < cols) ? c + BS : cols;
+            for (int ir = r; ir < r_end; ir++) {
+                for (int ic = c; ic < c_end; ic++) {
+                    scratch[ic * rows + ir] = grid[ir * cols + ic];
+                }
+            }
+        }
+    }
+
     for (int c = 0; c < cols; c++) {
-        for (int r = 0; r < rows; r++) {
-            buf[r] = grid[r * cols + c];
-        }
-        fft_radix2(buf, rows, invert);
-        for (int r = 0; r < rows; r++) {
-            grid[r * cols + c] = buf[r];
-        }
+        fft_radix2_fast(&scratch[c * rows], rows, invert, bitrev_r, tw_r);
     }
 
-    free(buf);
+    for (int c = 0; c < cols; c += BS) {
+        for (int r = 0; r < rows; r += BS) {
+            int c_end = (c + BS < cols) ? c + BS : cols;
+            int r_end = (r + BS < rows) ? r + BS : rows;
+            for (int ic = c; ic < c_end; ic++) {
+                for (int ir = r; ir < r_end; ir++) {
+                    grid[ir * cols + ic] = scratch[ic * rows + ir];
+                }
+            }
+        }
+    }
 }
 
 int syna_bandpass_filter(const float *in, float *out)
 {
     if (!in || !out) return -1;
+    init_tables();
 
-    /* Pad to next power of 2 for filtering: 64x256 */
     const int pad_h = 64;
     const int pad_w = 256;
     Complex *grid = calloc(pad_h * pad_w, sizeof(Complex));
-    if (!grid) return -2;
+    Complex *scratch = malloc(pad_h * pad_w * sizeof(Complex));
+    if (!grid || !scratch) {
+        free(grid);
+        free(scratch);
+        return -2;
+    }
 
     float mean = 0.0f;
     for (int i = 0; i < IMG_H * IMG_W; i++) {
@@ -112,9 +173,8 @@ int syna_bandpass_filter(const float *in, float *out)
         }
     }
 
-    fft2d(grid, pad_h, pad_w, 0);
+    fft2d_fast(grid, pad_h, pad_w, 0, scratch);
 
-    /* Filter in frequency domain: 0.08 <= radius < 0.30 cycles/pixel */
     for (int r = 0; r < pad_h; r++) {
         float fy = (r < pad_h / 2) ? (float)r / (float)pad_h : (float)(r - pad_h) / (float)pad_h;
         for (int c = 0; c < pad_w; c++) {
@@ -127,9 +187,8 @@ int syna_bandpass_filter(const float *in, float *out)
         }
     }
 
-    fft2d(grid, pad_h, pad_w, 1);
+    fft2d_fast(grid, pad_h, pad_w, 1, scratch);
 
-    /* Extract original image size, compute variance */
     float var = 0.0f;
     for (int r = 0; r < IMG_H; r++) {
         for (int c = 0; c < IMG_W; c++) {
@@ -140,6 +199,7 @@ int syna_bandpass_filter(const float *in, float *out)
     }
 
     free(grid);
+    free(scratch);
 
     float std = sqrtf(var / (float)(IMG_H * IMG_W));
     if (std <= 1e-7f) return -3;
@@ -181,14 +241,93 @@ static void rotate_nearest(const float *in, float deg, float *out, float *mask)
     }
 }
 
-static void eval_single_angle(int deg, const float *b, float *br, float *mask,
-                              size_t sz,
-                              Complex *fa, Complex *fa2, Complex *f1,
-                              Complex *fb, Complex *fb2, Complex *fm,
-                              Complex *num, Complex *ov, Complex *ea, Complex *eb,
-                              float min_ov_pixels,
-                              int step_r, int step_c,
-                              SynaMatchResult *res)
+static void compute_sat(const float *img, int rows, int cols, float *sat)
+{
+    int sat_stride = cols + 1;
+    for (int c = 0; c <= cols; c++) sat[c] = 0.0f;
+
+    for (int r = 0; r < rows; r++) {
+        float row_sum = 0.0f;
+        sat[(r + 1) * sat_stride + 0] = 0.0f;
+        for (int c = 0; c < cols; c++) {
+            row_sum += img[r * cols + c];
+            sat[(r + 1) * sat_stride + (c + 1)] = sat[r * sat_stride + (c + 1)] + row_sum;
+        }
+    }
+}
+
+static inline float query_sat(const float *sat, int cols, int r0, int r1, int c0, int c1)
+{
+    if (r1 <= r0 || c1 <= c0) return 0.0f;
+    int sat_stride = cols + 1;
+    return sat[r1 * sat_stride + c1]
+         - sat[r0 * sat_stride + c1]
+         - sat[r1 * sat_stride + c0]
+         + sat[r0 * sat_stride + c0];
+}
+
+struct SynaMatcherContext {
+    Complex fa[FFT_H * FFT_W];
+    Complex fb[FFT_H * FFT_W];
+    Complex num[FFT_H * FFT_W];
+    Complex scratch[FFT_H * FFT_W];
+
+    float sat_a2[(IMG_H + 1) * (IMG_W + 1)];
+    float sat_b2[(IMG_H + 1) * (IMG_W + 1)];
+    float sat_m[(IMG_H + 1) * (IMG_W + 1)];
+
+    float br[IMG_H * IMG_W];
+    float mask[IMG_H * IMG_W];
+    float b2[IMG_H * IMG_W];
+
+    bool probe_set;
+};
+
+SynaMatcherContext *syna_matcher_context_new(void)
+{
+    init_tables();
+    SynaMatcherContext *ctx = calloc(1, sizeof(SynaMatcherContext));
+    return ctx;
+}
+
+void syna_matcher_context_free(SynaMatcherContext *ctx)
+{
+    if (ctx) {
+        free(ctx);
+    }
+}
+
+void syna_matcher_set_probe(SynaMatcherContext *ctx, const float *probe)
+{
+    if (!ctx || !probe) return;
+    init_tables();
+
+    /* Compute horizontal 1D FFTs on the 56 valid rows, then store transposed [c * FFT_H + r] in ctx->fa */
+    memset(ctx->fa, 0, sizeof(ctx->fa));
+    float a2[IMG_H * IMG_W];
+    for (int r = 0; r < IMG_H; r++) {
+        Complex row_buf[FFT_W];
+        memset(row_buf, 0, sizeof(row_buf));
+        for (int c = 0; c < IMG_W; c++) {
+            float val = probe[r * IMG_W + c];
+            row_buf[c].r = val;
+            a2[r * IMG_W + c] = val * val;
+        }
+        fft_radix2_fast(row_buf, FFT_W, 0, bitrev_256, twiddles_256);
+        for (int c = 0; c < FFT_W; c++) {
+            ctx->fa[c * FFT_H + r] = row_buf[c];
+        }
+    }
+    for (int c = 0; c < FFT_W; c++) {
+        fft_radix2_fast(&ctx->fa[c * FFT_H], FFT_H, 0, bitrev_128, twiddles_128);
+    }
+    compute_sat(a2, IMG_H, IMG_W, ctx->sat_a2);
+    ctx->probe_set = true;
+}
+
+static void eval_single_angle_fast(SynaMatcherContext *ctx, int deg, const float *b,
+                                   float min_ov_pixels, int step_r, int step_c,
+                                   SynaMatchResult *res)
 {
     res->score = -1.0f;
     res->angle = (float)deg;
@@ -196,64 +335,107 @@ static void eval_single_angle(int deg, const float *b, float *br, float *mask,
     res->dx = 0;
     res->overlap = 0.0f;
 
-    rotate_nearest(b, (float)deg, br, mask);
+    rotate_nearest(b, (float)deg, ctx->br, ctx->mask);
 
-    memset(fb, 0, sz);
-    memset(fb2, 0, sz);
-    memset(fm, 0, sz);
+    for (int i = 0; i < IMG_H * IMG_W; i++) {
+        float v = ctx->br[i];
+        ctx->b2[i] = v * v;
+    }
+    compute_sat(ctx->mask, IMG_H, IMG_W, ctx->sat_m);
+    compute_sat(ctx->b2, IMG_H, IMG_W, ctx->sat_b2);
 
+    /* 1. Forward 1D horizontal FFTs only on the 56 non-zero image rows */
+    memset(ctx->scratch, 0, sizeof(ctx->scratch));
     for (int r = 0; r < IMG_H; r++) {
+        Complex *row = &ctx->fb[r * FFT_W];
         for (int c = 0; c < IMG_W; c++) {
-            float v = br[r * IMG_W + c];
-            float m = mask[r * IMG_W + c];
-            fb[r * FFT_W + c].r = v;
-            fb2[r * FFT_W + c].r = v * v;
-            fm[r * FFT_W + c].r = m;
+            row[c].r = ctx->br[r * IMG_W + c];
+            row[c].i = 0.0f;
+        }
+        memset(&row[IMG_W], 0, (FFT_W - IMG_W) * sizeof(Complex));
+        fft_radix2_fast(row, FFT_W, 0, bitrev_256, twiddles_256);
+    }
+
+    /* Transpose 56 x 256 into ctx->scratch [c * FFT_H + r] */
+    const int BS = 16;
+    for (int r = 0; r < IMG_H; r += BS) {
+        int r_end = (r + BS < IMG_H) ? r + BS : IMG_H;
+        for (int c = 0; c < FFT_W; c += BS) {
+            int c_end = (c + BS < FFT_W) ? c + BS : FFT_W;
+            for (int ir = r; ir < r_end; ir++) {
+                for (int ic = c; ic < c_end; ic++) {
+                    ctx->scratch[ic * FFT_H + ir] = ctx->fb[ir * FFT_W + ic];
+                }
+            }
         }
     }
 
-    fft2d(fb, FFT_H, FFT_W, 0);
-    fft2d(fb2, FFT_H, FFT_W, 0);
-    fft2d(fm, FFT_H, FFT_W, 0);
-
-    /* Cross-correlations in freq domain */
-    for (int i = 0; i < FFT_H * FFT_W; i++) {
-        num[i].r = fa[i].r * fb[i].r + fa[i].i * fb[i].i;
-        num[i].i = fa[i].i * fb[i].r - fa[i].r * fb[i].i;
-
-        ov[i].r = f1[i].r * fm[i].r + f1[i].i * fm[i].i;
-        ov[i].i = f1[i].i * fm[i].r - f1[i].r * fm[i].i;
-
-        ea[i].r = fa2[i].r * fm[i].r + fa2[i].i * fm[i].i;
-        ea[i].i = fa2[i].i * fm[i].r - fa2[i].r * fm[i].i;
-
-        eb[i].r = f1[i].r * fb2[i].r + f1[i].i * fb2[i].i;
-        eb[i].i = f1[i].i * fb2[i].r - f1[i].r * fb2[i].i;
+    /* 2. Fused L1-cache column loop: vertical FFT -> cross-spectrum multiply -> vertical IFFT */
+    for (int c = 0; c < FFT_W; c++) {
+        Complex *col = &ctx->scratch[c * FFT_H];
+        const Complex *fa_col = &ctx->fa[c * FFT_H];
+        fft_radix2_fast(col, FFT_H, 0, bitrev_128, twiddles_128);
+        for (int r = 0; r < FFT_H; r++) {
+            float ar = fa_col[r].r, ai = fa_col[r].i;
+            float br = col[r].r,    bi = col[r].i;
+            col[r].r = ar * br + ai * bi;
+            col[r].i = ai * br - ar * bi;
+        }
+        fft_radix2_fast(col, FFT_H, 1, bitrev_128, twiddles_inv_128);
     }
 
-    fft2d(num, FFT_H, FFT_W, 1);
-    fft2d(ov, FFT_H, FFT_W, 1);
-    fft2d(ea, FFT_H, FFT_W, 1);
-    fft2d(eb, FFT_H, FFT_W, 1);
-
+    /* 3. Inverse 1D horizontal FFTs ONLY on active shift rows (|r_shift| <= 22: 45 rows out of 128) */
     for (int r = 0; r < FFT_H; r += step_r) {
+        int r_shift = (r < IMG_H) ? r : (r - FFT_H);
+        if (r_shift < -22 || r_shift > 22) continue;
+
+        Complex *num_row = &ctx->num[r * FFT_W];
+        for (int c = 0; c < FFT_W; c++) {
+            num_row[c] = ctx->scratch[c * FFT_H + r];
+        }
+        fft_radix2_fast(num_row, FFT_W, 1, bitrev_256, twiddles_inv_256);
+
         for (int c = 0; c < FFT_W; c += step_c) {
-            int idx = r * FFT_W + c;
-            float cur_ov = ov[idx].r;
+            int c_shift = (c < IMG_W) ? c : (c - FFT_W);
+            if (c_shift < -52 || c_shift > 52) continue;
+
+            float num_val = num_row[c].r;
+            if (num_val <= 0.0f) continue;
+
+            /* Intersect intervals */
+            int ub0 = (r_shift > 0) ? 0 : -r_shift;
+            int ub1 = (r_shift > 0) ? (IMG_H - r_shift) : IMG_H;
+            int vb0 = (c_shift > 0) ? 0 : -c_shift;
+            int vb1 = (c_shift > 0) ? (IMG_W - c_shift) : IMG_W;
+
+            float cur_ov = query_sat(ctx->sat_m, IMG_W, ub0, ub1, vb0, vb1);
             if (cur_ov > min_ov_pixels) {
-                float cur_ea = ea[idx].r;
-                float cur_eb = eb[idx].r;
+                float cur_eb = query_sat(ctx->sat_b2, IMG_W, ub0, ub1, vb0, vb1);
+
+                int ua0 = (r_shift > 0) ? r_shift : 0;
+                int ua1 = (r_shift > 0) ? IMG_H : (IMG_H + r_shift);
+                int va0 = (c_shift > 0) ? c_shift : 0;
+                int va1 = (c_shift > 0) ? IMG_W : (IMG_W + c_shift);
+
+                float cur_ea = query_sat(ctx->sat_a2, IMG_W, ua0, ua1, va0, va1);
+                float box_area = (float)((ub1 - ub0) * (vb1 - vb0));
+                if (box_area > 0.0f && cur_ov < box_area) {
+                    cur_ea *= (cur_ov / box_area);
+                }
+
                 float denom = sqrtf(fmaxf(cur_ea * cur_eb, 1e-9f));
-                float score = num[idx].r / denom;
+                float score = num_val / denom;
+                float ov_ratio = cur_ov / (float)(IMG_H * IMG_W);
+                if (ov_ratio < 0.65f) {
+                    score *= sqrtf(ov_ratio / 0.65f);
+                }
 
                 if (score > res->score) {
-                    int dy = (r < IMG_H) ? r : (r - FFT_H);
-                    int dx = (c < IMG_W) ? c : (c - FFT_W);
                     res->score = score;
                     res->angle = (float)deg;
-                    res->dy = -dy;
-                    res->dx = -dx;
-                    res->overlap = cur_ov / (float)(IMG_H * IMG_W);
+                    res->dy = -r_shift;
+                    res->dx = -c_shift;
+                    res->overlap = ov_ratio;
                 }
             }
         }
@@ -275,57 +457,14 @@ static void insert_peak(SynaMatchResult top_peaks[3], const SynaMatchResult *can
     }
 }
 
-int syna_match_images(const float *a,
-                      const float *b,
-                      float min_overlap,
-                      SynaMatchResult *result)
+int syna_matcher_match_template(SynaMatcherContext *ctx,
+                                const float *template_b,
+                                float min_overlap,
+                                SynaMatchResult *result)
 {
-    if (!a || !b || !result) return -1;
-
-    size_t sz = FFT_H * FFT_W * sizeof(Complex);
-    Complex *fa  = calloc(FFT_H * FFT_W, sizeof(Complex));
-    Complex *fa2 = calloc(FFT_H * FFT_W, sizeof(Complex));
-    Complex *f1  = calloc(FFT_H * FFT_W, sizeof(Complex));
-    Complex *fb  = calloc(FFT_H * FFT_W, sizeof(Complex));
-    Complex *fb2 = calloc(FFT_H * FFT_W, sizeof(Complex));
-    Complex *fm  = calloc(FFT_H * FFT_W, sizeof(Complex));
-
-    Complex *num = malloc(sz);
-    Complex *ov  = malloc(sz);
-    Complex *ea  = malloc(sz);
-    Complex *eb  = malloc(sz);
-
-    float *br = malloc(IMG_H * IMG_W * sizeof(float));
-    float *mask = malloc(IMG_H * IMG_W * sizeof(float));
-
-    if (!fa || !fa2 || !f1 || !fb || !fb2 || !fm || !num || !ov || !ea || !eb || !br || !mask) {
-        free(fa); free(fa2); free(f1); free(fb); free(fb2); free(fm);
-        free(num); free(ov); free(ea); free(eb); free(br); free(mask);
-        return -2;
-    }
-
-    /* Compute fa, fa2, f1 once */
-    for (int r = 0; r < IMG_H; r++) {
-        for (int c = 0; c < IMG_W; c++) {
-            float val = a[r * IMG_W + c];
-            fa[r * FFT_W + c].r = val;
-            fa2[r * FFT_W + c].r = val * val;
-            f1[r * FFT_W + c].r = 1.0f;
-        }
-    }
-
-    fft2d(fa, FFT_H, FFT_W, 0);
-    fft2d(fa2, FFT_H, FFT_W, 0);
-    fft2d(f1, FFT_H, FFT_W, 0);
-
-    result->score = -1.0f;
-    result->angle = 0.0f;
-    result->dy = 0;
-    result->dx = 0;
-    result->overlap = 0.0f;
+    if (!ctx || !ctx->probe_set || !template_b || !result) return -1;
 
     float min_ov_pixels = min_overlap * (float)(IMG_H * IMG_W);
-
     bool evaluated[61] = { false };
     SynaMatchResult top_peaks[3];
     for (int k = 0; k < 3; k++) {
@@ -336,52 +475,55 @@ int syna_match_images(const float *a,
         top_peaks[k].overlap = 0.0f;
     }
 
-    /* Phase 1: Coarse search (step 4 deg, step 2 px in translation) */
-    for (int deg = -30; deg <= 30; deg += 4) {
+    /* Phase 1: Search step 2 deg across -30..+30 at full shift resolution (step 1, 1) */
+    for (int deg = -30; deg <= 30; deg += 2) {
         evaluated[deg + 30] = true;
-        SynaMatchResult cur_res;
-        eval_single_angle(deg, b, br, mask, sz,
-                          fa, fa2, f1, fb, fb2, fm,
-                          num, ov, ea, eb,
-                          min_ov_pixels, 2, 2, &cur_res);
-
-        if (cur_res.score > -0.5f) {
-            insert_peak(top_peaks, &cur_res);
+        SynaMatchResult cur;
+        eval_single_angle_fast(ctx, deg, template_b, min_ov_pixels, 1, 1, &cur);
+        if (cur.score > -0.5f) {
+            insert_peak(top_peaks, &cur);
         }
     }
 
     *result = top_peaks[0];
 
-    /* Phase 2: Fine refinement (step 1 deg, step 1 px around top 3 coarse peaks) */
+    /* Phase 2: Fine refinement step 1 deg (+/- 1 deg) around top peaks */
     for (int k = 0; k < 3; k++) {
         if (top_peaks[k].score < 0.20f) continue;
         int peak_deg = (int)roundf(top_peaks[k].angle);
 
-        for (int d = -3; d <= 3; d++) {
+        for (int d = -1; d <= 1; d += 2) {
             int fine_deg = peak_deg + d;
             if (fine_deg < -30 || fine_deg > 30) continue;
-            if (d != 0 && evaluated[fine_deg + 30]) continue;
+            if (evaluated[fine_deg + 30]) continue;
             evaluated[fine_deg + 30] = true;
 
-            SynaMatchResult cur_res;
-            eval_single_angle(fine_deg, b, br, mask, sz,
-                              fa, fa2, f1, fb, fb2, fm,
-                              num, ov, ea, eb,
-                              min_ov_pixels, 1, 1, &cur_res);
-
-            if (cur_res.score > result->score) {
-                *result = cur_res;
+            SynaMatchResult cur;
+            eval_single_angle_fast(ctx, fine_deg, template_b, min_ov_pixels, 1, 1, &cur);
+            if (cur.score > result->score) {
+                *result = cur;
             }
         }
-
-        if (result->score >= 0.92f) {
-            break;
-        }
+        if (result->score >= 0.92f) break;
     }
 
-    free(fa); free(fa2); free(f1); free(fb); free(fb2); free(fm);
-    free(num); free(ov); free(ea); free(eb); free(br); free(mask);
     return 0;
+}
+
+int syna_match_images(const float *a,
+                      const float *b,
+                      float min_overlap,
+                      SynaMatchResult *result)
+{
+    if (!a || !b || !result) return -1;
+
+    SynaMatcherContext *ctx = syna_matcher_context_new();
+    if (!ctx) return -2;
+
+    syna_matcher_set_probe(ctx, a);
+    int ret = syna_matcher_match_template(ctx, b, min_overlap, result);
+    syna_matcher_context_free(ctx);
+    return ret;
 }
 
 bool syna_is_match(const float *a, const float *b)

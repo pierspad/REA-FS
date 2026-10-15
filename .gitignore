@@ -76,9 +76,15 @@ Testing/
 __pycache__/
 *.pyc
 
-# Local credentials and private pairing keys (do NOT track)
+# Local credentials, private pairing keys, and biometric dumps (do NOT track)
 *.pem
+*.bin
+*.raw
+*.pgm
+*.ppm
+*.npy
 /drivers/syna_tod/credentials/
 /drivers/**/build/
 
 /panel/target/
+

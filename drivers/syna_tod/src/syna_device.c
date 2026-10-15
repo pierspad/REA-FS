@@ -226,9 +226,32 @@ get_baseline_cache_path (const char *custom_dir)
 static gboolean
 syna_load_baseline_cache (const char *dir, float *out_baseline)
 {
-    char *path = get_baseline_cache_path (dir);
-    FILE *f = fopen (path, "rb");
-    g_free (path);
+    const char *candidates[4] = { NULL, NULL, NULL, NULL };
+    int num_candidates = 0;
+
+    if (dir) {
+        candidates[num_candidates++] = dir;
+    } else {
+        const char *env_dir = getenv ("SYNA_TOD_DATA_DIR");
+        if (env_dir) candidates[num_candidates++] = env_dir;
+        candidates[num_candidates++] = SYNA_DEFAULT_DATA_DIR;
+        candidates[num_candidates++] = "drivers/syna_tod/credentials";
+    }
+
+    const char *filenames[2] = { "baseline_cache.bin", "baseline.bin" };
+    FILE *f = NULL;
+
+    for (int c = 0; c < num_candidates && !f; c++) {
+        for (int fn = 0; fn < 2 && !f; fn++) {
+            char *p = g_build_filename (candidates[c], filenames[fn], NULL);
+            f = fopen (p, "rb");
+            if (f) {
+                g_message ("Found baseline cache at: %s", p);
+            }
+            g_free (p);
+        }
+    }
+
     if (!f) return FALSE;
 
     size_t expected = SYNA_OUTPUT_ROWS * SYNA_SAMPLE_BYTES;
@@ -273,21 +296,6 @@ calc_rms (const float *frame, const float *baseline, size_t n)
     return sqrtf (sum_sq / (float)n);
 }
 
-static float
-calc_spatial_variance (const float *frame, size_t n)
-{
-    float mean = 0.0f;
-    for (size_t i = 0; i < n; i++) mean += frame[i];
-    mean /= (float)n;
-
-    float sum_sq = 0.0f;
-    for (size_t i = 0; i < n; i++) {
-        float diff = frame[i] - mean;
-        sum_sq += diff * diff;
-    }
-    return sum_sq / (float)n;
-}
-
 /* Helper to calibrate empty sensor baseline upon device open */
 static gboolean
 syna_calibrate_baseline (FpiDeviceSyna00dc *self, GCancellable *cancellable, GError **error)
@@ -315,7 +323,6 @@ syna_calibrate_baseline (FpiDeviceSyna00dc *self, GCancellable *cancellable, GEr
     int base_count = 0;
     float *accumulated = g_malloc0 (total_pixels * sizeof (float));
     float rms_sum = 0.0f;
-    float max_var = 0.0f;
 
     gint64 deadline = g_get_monotonic_time () + 15 * G_TIME_SPAN_SECOND;
     while (base_count < target_frames && g_get_monotonic_time () < deadline) {
@@ -330,9 +337,6 @@ syna_calibrate_baseline (FpiDeviceSyna00dc *self, GCancellable *cancellable, GEr
             if (s_has_cached_baseline) {
                 float r = calc_rms (dec, s_cached_baseline, total_pixels);
                 rms_sum += r;
-            } else {
-                float v = calc_spatial_variance (dec, total_pixels);
-                max_var = fmaxf (max_var, v);
             }
 
             for (size_t i = 0; i < total_pixels; i++) {
@@ -406,12 +410,15 @@ syna_calibrate_baseline (FpiDeviceSyna00dc *self, GCancellable *cancellable, GEr
         return TRUE;
     }
 
-    /* First-time calibration without cache */
-    if (max_var > 120.0f) {
+    /* First-time calibration without cache: verify frame values are within valid ADC range */
+    float avg_val = 0.0f;
+    for (size_t i = 0; i < total_pixels; i++) avg_val += accumulated[i];
+    avg_val /= (float)(base_count * total_pixels);
+    if (avg_val < 50.0f || avg_val > 200.0f) {
         g_free (accumulated);
         g_mutex_unlock (&s_baseline_mutex);
         g_set_error_literal (error, G_IO_ERROR, G_IO_ERROR_FAILED,
-                             "Sensor not empty during initial calibration");
+                             "Sensor calibration returned abnormal signal levels");
         return FALSE;
     }
 
@@ -434,6 +441,7 @@ syna_open_thread (GTask *task, gpointer source_object, gpointer task_data, GCanc
     (void)task_data;
     FpiDeviceSyna00dc *self = FPI_DEVICE_SYNA_00DC (source_object);
     GError *error = NULL;
+    gboolean claimed = FALSE;
 
     self->usb_device = fpi_device_get_usb_device (FP_DEVICE (self));
     if (!self->usb_device) {
@@ -448,20 +456,19 @@ syna_open_thread (GTask *task, gpointer source_object, gpointer task_data, GCanc
         g_task_return_error (task, error);
         return;
     }
+    claimed = TRUE;
 
     /* Load OEM blobs and host credentials */
     if (syna_oem_load (NULL, &self->oem) != 0) {
-        g_usb_device_release_interface (self->usb_device, 0, G_USB_DEVICE_CLAIM_INTERFACE_NONE, NULL);
-        g_task_return_new_error (task, G_IO_ERROR, G_IO_ERROR_NOT_FOUND, "Failed to load Synaptics OEM pairing credentials");
-        return;
+        error = g_error_new_literal (G_IO_ERROR, G_IO_ERROR_NOT_FOUND, "Failed to load Synaptics OEM pairing credentials");
+        goto fail;
     }
 
     /* Init TLS */
     if (syna_tls_init (&self->tls, self->oem.host_key_pem, self->oem.host_cert, self->oem.host_cert_len,
                        self->oem.server_ecdh_pub, self->oem.server_ecdh_pub_len) != 0) {
-        g_usb_device_release_interface (self->usb_device, 0, G_USB_DEVICE_CLAIM_INTERFACE_NONE, NULL);
-        g_task_return_new_error (task, G_IO_ERROR, G_IO_ERROR_FAILED, "Failed to initialize TLS context");
-        return;
+        error = g_error_new_literal (G_IO_ERROR, G_IO_ERROR_FAILED, "Failed to initialize TLS context");
+        goto fail;
     }
 
     /* 1. ClientHello */
@@ -472,57 +479,71 @@ syna_open_thread (GTask *task, gpointer source_object, gpointer task_data, GCanc
     uint8_t s_hello[512];
     size_t s_hello_len = 0;
     if (!syna_usb_cmd (self->usb_device, hello, hello_len, s_hello, sizeof (s_hello), &s_hello_len, cancellable, &error)) {
-        g_usb_device_release_interface (self->usb_device, 0, G_USB_DEVICE_CLAIM_INTERFACE_NONE, NULL);
-        g_task_return_error (task, error);
-        return;
+        goto fail;
     }
 
     if (syna_tls_handle_server_hello (&self->tls, s_hello, s_hello_len) != 0) {
-        g_usb_device_release_interface (self->usb_device, 0, G_USB_DEVICE_CLAIM_INTERFACE_NONE, NULL);
-        g_task_return_new_error (task, G_IO_ERROR, G_IO_ERROR_FAILED, "ServerHello parsing failed");
-        return;
+        error = g_error_new_literal (G_IO_ERROR, G_IO_ERROR_FAILED, "ServerHello parsing failed");
+        goto fail;
     }
 
     /* 2. Flight 2 (KEX, Cert, Finished) */
     uint8_t flight2[1024];
     size_t flight2_len = 0;
     if (syna_tls_build_flight2 (&self->tls, flight2, &flight2_len) != 0) {
-        g_usb_device_release_interface (self->usb_device, 0, G_USB_DEVICE_CLAIM_INTERFACE_NONE, NULL);
-        g_task_return_new_error (task, G_IO_ERROR, G_IO_ERROR_FAILED, "Failed to build TLS flight 2");
-        return;
+        error = g_error_new_literal (G_IO_ERROR, G_IO_ERROR_FAILED, "Failed to build TLS flight 2");
+        goto fail;
     }
 
     uint8_t s_fin[512];
     size_t s_fin_len = 0;
     if (!syna_usb_cmd (self->usb_device, flight2, flight2_len, s_fin, sizeof (s_fin), &s_fin_len, cancellable, &error)) {
-        g_usb_device_release_interface (self->usb_device, 0, G_USB_DEVICE_CLAIM_INTERFACE_NONE, NULL);
-        g_task_return_error (task, error);
-        return;
+        goto fail;
     }
 
     if (syna_tls_handle_flight2_reply (&self->tls, s_fin, s_fin_len) != 0) {
-        g_usb_device_release_interface (self->usb_device, 0, G_USB_DEVICE_CLAIM_INTERFACE_NONE, NULL);
-        g_task_return_new_error (task, G_IO_ERROR, G_IO_ERROR_FAILED, "TLS Finished verification failed");
-        return;
+        error = g_error_new_literal (G_IO_ERROR, G_IO_ERROR_FAILED, "TLS Finished verification failed");
+        goto fail;
     }
 
     /* 3. Prepare capture pipeline (0x1a cleanup + 0x06 init) */
     if (!syna_prepare_capture_pipeline (self, cancellable, &error)) {
-        g_usb_device_release_interface (self->usb_device, 0, G_USB_DEVICE_CLAIM_INTERFACE_NONE, NULL);
-        g_task_return_error (task, error);
-        return;
+        goto fail;
     }
 
     self->has_baseline = FALSE;
-    /* 4. Calibrate clean empty sensor baseline */
-    if (!syna_calibrate_baseline (self, cancellable, &error)) {
-        g_usb_device_release_interface (self->usb_device, 0, G_USB_DEVICE_CLAIM_INTERFACE_NONE, NULL);
-        g_task_return_error (task, error);
-        return;
+    /* 4. Load persistent baseline cache from disk, or calibrate if missing */
+    g_mutex_lock (&s_baseline_mutex);
+    if (!s_has_cached_baseline) {
+        s_has_cached_baseline = syna_load_baseline_cache (NULL, s_cached_baseline);
+    }
+    if (s_has_cached_baseline) {
+        if (!self->baseline) {
+            self->baseline = g_malloc0 (SYNA_OUTPUT_ROWS * SYNA_SAMPLE_BYTES * sizeof (float));
+        }
+        memcpy (self->baseline, s_cached_baseline, SYNA_OUTPUT_ROWS * SYNA_SAMPLE_BYTES * sizeof (float));
+        self->has_baseline = TRUE;
+        g_mutex_unlock (&s_baseline_mutex);
+        g_message ("Open: loaded persistent baseline from cache (instant zero-wait startup)");
+    } else {
+        g_mutex_unlock (&s_baseline_mutex);
+        /* First-time calibration without cache */
+        if (!syna_calibrate_baseline (self, cancellable, &error)) {
+            goto fail;
+        }
     }
 
     self->is_open = TRUE;
     g_task_return_boolean (task, TRUE);
+    return;
+
+fail:
+    if (claimed) {
+        g_usb_device_release_interface (self->usb_device, 0, G_USB_DEVICE_CLAIM_INTERFACE_NONE, NULL);
+    }
+    syna_tls_free (&self->tls);
+    syna_oem_free (&self->oem);
+    g_task_return_error (task, error);
 }
 
 static void
@@ -756,7 +777,11 @@ align_and_average_frames (float frames[MAX_CONTACT_FRAMES][SYNA_OUTPUT_ROWS * SY
 
 /* Helper to capture a single finger sample from USB bulk stream */
 static float *
-syna_capture_finger_sample (FpiDeviceSyna00dc *self, gboolean more_stages_needed, GCancellable *cancellable, GError **error)
+syna_capture_finger_sample (FpiDeviceSyna00dc *self,
+                            gboolean require_finger_lift,
+                            gboolean more_stages_needed,
+                            GCancellable *cancellable,
+                            GError **error)
 {
     /* 1. Ensure clean baseline is available */
     if (!self->has_baseline) {
@@ -789,17 +814,22 @@ syna_capture_finger_sample (FpiDeviceSyna00dc *self, gboolean more_stages_needed
     gboolean waiting_for_lift = FALSE;
     int empty_consecutive_frames = 0;
 
-    if (self->initial_contact_present) {
+    if (self->initial_contact_present && !require_finger_lift) {
         sensor_cleared = TRUE;
         finger_detected = TRUE;
         self->initial_contact_present = FALSE;
         syna_report_status (self, FP_FINGER_STATUS_PRESENT, FP_FINGER_STATUS_NONE);
+    } else {
+        self->initial_contact_present = FALSE;
     }
 
     gint64 deadline = g_get_monotonic_time () + 60 * G_TIME_SPAN_SECOND;
     float min_rms = INFINITY, max_rms = 0.0f;
 
-    while (valid_contact_frames < MAX_CONTACT_FRAMES) {
+    int target_contact_frames = 6;
+    int min_contact_frames = 5;
+
+    while (valid_contact_frames < target_contact_frames) {
         if (g_get_monotonic_time () >= deadline) {
             g_set_error_literal (error, G_IO_ERROR, G_IO_ERROR_TIMED_OUT, "Capture deadline exceeded (60 seconds)");
             break;
@@ -821,25 +851,30 @@ syna_capture_finger_sample (FpiDeviceSyna00dc *self, gboolean more_stages_needed
             min_rms = fminf (min_rms, rms);
             max_rms = fmaxf (max_rms, rms);
 
-            /* Phase 1: Wait for clear sensor if not already cleared */
+            /* Phase 1: Check initial sensor state (wait for finger lift if required between stages) */
             if (!sensor_cleared) {
-                if (rms > 28.0f) {
+                if (!require_finger_lift && rms > 35.0f && self->has_baseline) {
+                    /* Finger already present on sensor with valid persistent baseline! */
+                    g_message ("Capture: finger already present at startup (RMS=%.1f). Bypassing lift wait.", rms);
+                    sensor_cleared = TRUE;
+                    finger_detected = TRUE;
+                    syna_report_status (self, FP_FINGER_STATUS_PRESENT, FP_FINGER_STATUS_NONE);
+                    for (size_t i = 0; i < G_N_ELEMENTS (dec); i++) {
+                        collected_frames[valid_contact_frames][i] = dec[i] - self->baseline[i];
+                    }
+                    valid_contact_frames++;
+                    continue;
+                } else if (rms > 28.0f) {
                     empty_consecutive_frames = 0;
                     if (!waiting_for_lift) {
                         waiting_for_lift = TRUE;
-                        g_print ("\n>>> [SENSOR] >>> Finger still on sensor. Please lift your finger...\n");
-                        fflush (stdout);
                     }
                     continue;
                 } else {
                     empty_consecutive_frames++;
-                    if (empty_consecutive_frames >= 2) {
+                    if (empty_consecutive_frames >= (require_finger_lift ? 2 : 1)) {
                         sensor_cleared = TRUE;
-                        if (waiting_for_lift) {
-                            g_print (">>> [SENSOR] >>> Finger lifted! Ready.\n");
-                            fflush (stdout);
-                        }
-                        syna_report_status (self, FP_FINGER_STATUS_NEEDED, FP_FINGER_STATUS_NONE);
+                        syna_report_status (self, FP_FINGER_STATUS_NEEDED, FP_FINGER_STATUS_PRESENT);
                     }
                     continue;
                 }
@@ -853,8 +888,8 @@ syna_capture_finger_sample (FpiDeviceSyna00dc *self, gboolean more_stages_needed
                 }
 
                 transient_seen++;
-                if (transient_seen <= 2) {
-                    /* Discard first 2 transient contact frames */
+                if (transient_seen <= 1) {
+                    /* Discard 1 initial transient frame upon contact */
                     continue;
                 }
 
@@ -863,40 +898,20 @@ syna_capture_finger_sample (FpiDeviceSyna00dc *self, gboolean more_stages_needed
                     collected_frames[valid_contact_frames][i] = dec[i] - self->baseline[i];
                 }
                 valid_contact_frames++;
-            } else if (finger_detected && valid_contact_frames >= MIN_CONTACT_FRAMES) {
-                /* Finger lifted after collecting at least MIN_CONTACT_FRAMES */
+            } else if (finger_detected) {
+                /* Finger lifted before target_contact_frames */
                 break;
             }
         }
     }
 
-    /* Phase 3: Wait for physical release if finger was touched */
-    if (finger_detected) {
-        int release_clear_count = 0;
-        gint64 release_deadline = g_get_monotonic_time () + 10 * G_TIME_SPAN_SECOND;
-        while (release_clear_count < 3 && g_get_monotonic_time () < release_deadline) {
-            if (g_cancellable_is_cancelled (cancellable)) break;
-            if (!syna_read_full_frame (self->usb_device, frame_buf, release_deadline, cancellable, NULL)) break;
-            if (syna_validate_frame (frame_buf, NULL) == 0) {
-                float dec[SYNA_OUTPUT_ROWS * SYNA_SAMPLE_BYTES];
-                syna_decode_frame_unclipped (frame_buf, dec);
-                float rms = calc_rms (dec, self->baseline, G_N_ELEMENTS (dec));
-                if (rms <= 28.0f) {
-                    release_clear_count++;
-                } else {
-                    release_clear_count = 0;
-                }
-            }
-        }
-
-        /* Now update status after physical release */
-        if (more_stages_needed) {
-            syna_report_status (self, FP_FINGER_STATUS_NEEDED, FP_FINGER_STATUS_PRESENT);
-        } else {
+    /* Update status at end of capture */
+    if (!more_stages_needed) {
+        if (finger_detected) {
             syna_report_status (self, FP_FINGER_STATUS_NONE, FP_FINGER_STATUS_PRESENT);
+        } else if (sensor_cleared) {
+            syna_report_status (self, FP_FINGER_STATUS_NONE, FP_FINGER_STATUS_NEEDED);
         }
-    } else if (sensor_cleared) {
-        syna_report_status (self, FP_FINGER_STATUS_NONE, FP_FINGER_STATUS_NEEDED);
     }
 
     g_message ("Capture summary: clear=%d valid_frames=%d RMS=%.1f..%.1f",
@@ -926,9 +941,13 @@ syna_capture_finger_sample (FpiDeviceSyna00dc *self, gboolean more_stages_needed
 
     self->capture_pipeline_ready = FALSE;
 
-    if ((error && *error) || valid_contact_frames < MIN_CONTACT_FRAMES) {
+    if ((error && *error) || valid_contact_frames < min_contact_frames) {
         if (error && !*error) {
-            g_set_error_literal (error, G_IO_ERROR, G_IO_ERROR_TIMED_OUT, "No sustained finger contact detected");
+            if (finger_detected) {
+                g_set_error_literal (error, G_IO_ERROR, G_IO_ERROR_PARTIAL_INPUT, "Finger lifted too soon");
+            } else {
+                g_set_error_literal (error, G_IO_ERROR, G_IO_ERROR_TIMED_OUT, "No sustained finger contact detected");
+            }
         }
         return NULL;
     }
@@ -972,6 +991,7 @@ syna_enroll_thread (GTask *task, gpointer source_object, gpointer task_data, GCa
     FpPrint *print = FP_PRINT (task_data);
 
     guint stage = 0;
+    gboolean require_lift = FALSE;
     while (stage < SYNA_ENROLL_STAGES) {
         if (g_cancellable_is_cancelled (cancellable)) {
             g_ptr_array_unref (samples);
@@ -980,7 +1000,7 @@ syna_enroll_thread (GTask *task, gpointer source_object, gpointer task_data, GCa
         }
 
         gboolean more_stages = (stage + 1 < SYNA_ENROLL_STAGES);
-        float *sample = syna_capture_finger_sample (self, more_stages, cancellable, &error);
+        float *sample = syna_capture_finger_sample (self, require_lift, more_stages, cancellable, &error);
         if (!sample) {
             if (error && (g_error_matches (error, G_IO_ERROR, G_IO_ERROR_CANCELLED) ||
                           g_error_matches (error, G_IO_ERROR, G_IO_ERROR_TIMED_OUT))) {
@@ -988,13 +1008,18 @@ syna_enroll_thread (GTask *task, gpointer source_object, gpointer task_data, GCa
                 g_task_return_error (task, error);
                 return;
             }
+            FpDeviceRetry retry_code = (error && g_error_matches (error, G_IO_ERROR, G_IO_ERROR_PARTIAL_INPUT))
+                                       ? FP_DEVICE_RETRY_TOO_SHORT
+                                       : FP_DEVICE_RETRY_REMOVE_FINGER;
             g_clear_error (&error);
-            syna_report_enroll_retry (self, stage, FP_DEVICE_RETRY_REMOVE_FINGER);
+            syna_report_enroll_retry (self, stage, retry_code);
+            require_lift = TRUE;
             continue;
         }
 
         g_ptr_array_add (samples, sample);
         stage++;
+        require_lift = TRUE;
         syna_report_stage (self, stage);
     }
 
@@ -1047,16 +1072,28 @@ syna_verify_thread (GTask *task, gpointer source_object, gpointer task_data, GCa
         return;
     }
 
-    float *live_sample = syna_capture_finger_sample (self, FALSE, cancellable, &error);
+    float *live_sample = syna_capture_finger_sample (self, FALSE, FALSE, cancellable, &error);
     if (!live_sample) {
         g_task_return_error (task, error);
         return;
     }
 
+    SynaMatcherContext *matcher_ctx = syna_matcher_context_new ();
+    if (matcher_ctx) {
+        syna_matcher_set_probe (matcher_ctx, live_sample);
+    }
+
     SynaMatchResult match_res = { .score = -1.0f };
     for (guint i = 0; i < samples->len; i++) {
         SynaMatchResult candidate;
-        if (syna_match_images (samples->pdata[i], live_sample, 0.65f, &candidate) != 0) {
+        int rc;
+        if (matcher_ctx) {
+            rc = syna_matcher_match_template (matcher_ctx, samples->pdata[i], 0.45f, &candidate);
+        } else {
+            rc = syna_match_images (samples->pdata[i], live_sample, 0.45f, &candidate);
+        }
+        if (rc != 0) {
+            if (matcher_ctx) syna_matcher_context_free (matcher_ctx);
             g_free (live_sample);
             g_task_return_new_error (task, G_IO_ERROR, G_IO_ERROR_FAILED, "Matcher failed");
             return;
@@ -1068,6 +1105,7 @@ syna_verify_thread (GTask *task, gpointer source_object, gpointer task_data, GCa
             break;
         }
     }
+    if (matcher_ctx) syna_matcher_context_free (matcher_ctx);
     g_free (live_sample);
 
     g_message ("Synaptics verify score: %.3f (threshold: %.2f, rotation: %.1f deg, overlap: %.1f%%)",
@@ -1112,6 +1150,132 @@ syna_verify (FpDevice *device)
     g_object_unref (task);
 }
 
+/* Multi-finger IDENTIFY (1-to-N across all enrolled fingers) */
+typedef struct {
+    FpPrint *print;
+    GPtrArray *samples;
+} SynaIdentifyEntry;
+
+static void
+syna_identify_entry_free (gpointer data)
+{
+    SynaIdentifyEntry *entry = data;
+    if (!entry) return;
+    if (entry->print) g_object_unref (entry->print);
+    if (entry->samples) g_ptr_array_unref (entry->samples);
+    g_free (entry);
+}
+
+static void
+syna_identify_thread (GTask *task, gpointer source_object, gpointer task_data, GCancellable *cancellable)
+{
+    FpiDeviceSyna00dc *self = FPI_DEVICE_SYNA_00DC (source_object);
+    GPtrArray *entries = task_data;
+    GError *error = NULL;
+
+    if (!entries || entries->len == 0) {
+        g_task_return_new_error (task, G_IO_ERROR, G_IO_ERROR_INVALID_DATA,
+                                 "No valid enrolled templates available for identification");
+        return;
+    }
+
+    float *live_sample = syna_capture_finger_sample (self, FALSE, FALSE, cancellable, &error);
+    if (!live_sample) {
+        g_task_return_error (task, error);
+        return;
+    }
+
+    SynaMatcherContext *matcher_ctx = syna_matcher_context_new ();
+    if (matcher_ctx) {
+        syna_matcher_set_probe (matcher_ctx, live_sample);
+    }
+
+    SynaMatchResult best_res = { .score = -1.0f };
+    FpPrint *best_print = NULL;
+
+    for (guint f = 0; f < entries->len; f++) {
+        SynaIdentifyEntry *entry = entries->pdata[f];
+        for (guint i = 0; i < entry->samples->len; i++) {
+            SynaMatchResult candidate;
+            int rc;
+            if (matcher_ctx) {
+                rc = syna_matcher_match_template (matcher_ctx, entry->samples->pdata[i], 0.45f, &candidate);
+            } else {
+                rc = syna_match_images (entry->samples->pdata[i], live_sample, 0.45f, &candidate);
+            }
+            if (rc != 0) continue;
+            if (candidate.score > best_res.score) {
+                best_res = candidate;
+                best_print = entry->print;
+            }
+            if (candidate.score >= 0.72f) {
+                g_message ("Synaptics identify: early match exit on finger %u template %u (score: %.3f)",
+                           f, i, candidate.score);
+                goto identify_done;
+            }
+        }
+    }
+
+identify_done:
+    if (matcher_ctx) syna_matcher_context_free (matcher_ctx);
+    g_free (live_sample);
+
+    g_message ("Synaptics identify best score: %.3f (threshold: %.2f, rotation: %.1f deg, overlap: %.1f%%)",
+               best_res.score, (float)SYNA_MATCH_THRESHOLD, best_res.angle, best_res.overlap * 100.0f);
+
+    if (best_print && best_res.score >= SYNA_MATCH_THRESHOLD) {
+        g_task_return_pointer (task, g_object_ref (best_print), g_object_unref);
+    } else {
+        g_task_return_pointer (task, NULL, NULL);
+    }
+}
+
+static void
+on_identify_completed (GObject *source_object, GAsyncResult *res, gpointer user_data)
+{
+    (void)user_data;
+    FpDevice *device = FP_DEVICE (source_object);
+    GError *error = NULL;
+    FpPrint *matched_print = g_task_propagate_pointer (G_TASK (res), &error);
+    if (!error) {
+        fpi_device_identify_report (device, matched_print, matched_print, NULL);
+    }
+    if (matched_print) {
+        g_object_unref (matched_print);
+    }
+    fpi_device_identify_complete (device, error);
+}
+
+static void
+syna_identify (FpDevice *device)
+{
+    GTask *task = g_task_new (device, fpi_device_get_cancellable (device),
+                              on_identify_completed, NULL);
+    GPtrArray *prints = NULL;
+    fpi_device_get_identify_data (device, &prints);
+
+    GPtrArray *entries = g_ptr_array_new_with_free_func (syna_identify_entry_free);
+    if (prints) {
+        for (guint i = 0; i < prints->len; i++) {
+            FpPrint *print = prints->pdata[i];
+            GVariant *data = NULL;
+            g_object_get (print, "fpi-data", &data, NULL);
+            GPtrArray *samples = syna_template_decode (data);
+            if (data) g_variant_unref (data);
+            if (samples) {
+                SynaIdentifyEntry *entry = g_new0 (SynaIdentifyEntry, 1);
+                entry->print = g_object_ref (print);
+                entry->samples = samples;
+                g_ptr_array_add (entries, entry);
+            }
+        }
+    }
+
+    g_task_set_task_data (task, entries, (GDestroyNotify)g_ptr_array_unref);
+    g_task_run_in_thread (task, syna_identify_thread);
+    g_object_unref (task);
+}
+
 static void
 syna_cancel (FpDevice *device)
 {
@@ -1138,6 +1302,7 @@ fpi_device_syna_00dc_class_init (FpiDeviceSyna00dcClass *klass)
     dev_class->close = syna_close;
     dev_class->enroll = syna_enroll;
     dev_class->verify = syna_verify;
+    dev_class->identify = syna_identify;
     dev_class->cancel = syna_cancel;
 
     fpi_device_class_auto_initialize_features (dev_class);

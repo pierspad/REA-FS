@@ -42,6 +42,38 @@ int syna_match_images(const float *a,
                       SynaMatchResult *result);
 
 /**
+ * Context for high-performance matching with pre-allocated scratch buffers
+ * and reusable probe representations (avoids recomputing probe FFT and SAT
+ * across multiple enrolled templates).
+ */
+typedef struct SynaMatcherContext SynaMatcherContext;
+
+SynaMatcherContext *syna_matcher_context_new(void);
+void syna_matcher_context_free(SynaMatcherContext *ctx);
+
+/**
+ * Precompute FFT and Summed-Area Tables for probe image.
+ *
+ * @param ctx Matcher context.
+ * @param probe Bandpassed 56x144 probe image (unit variance).
+ */
+void syna_matcher_set_probe(SynaMatcherContext *ctx, const float *probe);
+
+/**
+ * Match an enrolled template against the currently set probe image.
+ *
+ * @param ctx Matcher context with probe already set.
+ * @param template_b Bandpassed 56x144 template image (unit variance).
+ * @param min_overlap Minimum required overlap fraction (e.g. 0.65).
+ * @param result Output match result.
+ * @return 0 on success, negative error code on failure.
+ */
+int syna_matcher_match_template(SynaMatcherContext *ctx,
+                                const float *template_b,
+                                float min_overlap,
+                                SynaMatchResult *result);
+
+/**
  * Convenience helper to determine if two 56x144 images match the authorized threshold.
  *
  * @param a First 56x144 image.

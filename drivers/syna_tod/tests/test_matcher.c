@@ -178,6 +178,83 @@ static void test_odd_rotations(void)
     printf("  [PASS] test_odd_rotations (+7 deg and -13 deg)\n");
 }
 
+#include <time.h>
+
+static double get_time_ms(void)
+{
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (double)ts.tv_sec * 1000.0 + (double)ts.tv_nsec / 1e6;
+}
+
+static void benchmark_5_templates(void)
+{
+    printf("\n--- Benchmark 1: 1 probe vs 5 templates (legacy API: syna_match_images) ---\n");
+
+    float probe_raw[H * W];
+    float probe[H * W];
+    for (int r = 0; r < H; r++) {
+        for (int c = 0; c < W; c++) {
+            float phase = 2.0f * (float)M_PI * (0.15f * (float)c + 0.06f * (float)r + 0.0004f * (float)(r * c));
+            probe_raw[r * W + c] = sinf(phase) + 0.4f * cosf(2.0f * (float)M_PI * 0.12f * (float)r);
+        }
+    }
+    assert(syna_bandpass_filter(probe_raw, probe) == 0);
+
+    /* Generate 5 realistic templates with different slight rotations and offsets */
+    float templates[5][H * W];
+    float angles[5] = { -12.0f, -4.0f, 0.0f, 8.0f, 15.0f };
+    for (int i = 0; i < 5; i++) {
+        float rot[H * W];
+        rotate_test_image(probe_raw, angles[i], rot);
+        assert(syna_bandpass_filter(rot, templates[i]) == 0);
+    }
+
+    double t0 = get_time_ms();
+    for (int i = 0; i < 5; i++) {
+        double t_start = get_time_ms();
+        SynaMatchResult res;
+        int rc = syna_match_images(probe, templates[i], 0.65f, &res);
+        double t_end = get_time_ms();
+        assert(rc == 0);
+        printf("  Template %d (rot %5.1f°): match score=%.4f angle=%5.1f° overlap=%.2f | time: %7.2f ms\n",
+               i, angles[i], res.score, res.angle, res.overlap, t_end - t_start);
+    }
+    double t1 = get_time_ms();
+    printf("  >>> Total time for 5 templates (legacy API): %.2f ms (avg: %.2f ms / template) <<<\n\n",
+           t1 - t0, (t1 - t0) / 5.0);
+
+    printf("--- Benchmark 2: 1 probe vs 5 templates with Probe Caching & Early Exit ---\n");
+    SynaMatcherContext *ctx = syna_matcher_context_new();
+    assert(ctx != NULL);
+
+    double tp0 = get_time_ms();
+    syna_matcher_set_probe(ctx, probe);
+    double tp1 = get_time_ms();
+    printf("  [Probe Setup] Precomputed probe representation in %.2f ms\n", tp1 - tp0);
+
+    double tc0 = get_time_ms();
+    for (int i = 0; i < 5; i++) {
+        double ts = get_time_ms();
+        SynaMatchResult res;
+        int rc = syna_matcher_match_template(ctx, templates[i], 0.65f, &res);
+        double te = get_time_ms();
+        assert(rc == 0);
+        printf("  Template %d: score=%.4f angle=%5.1f° | match time: %6.2f ms",
+               i, res.score, res.angle, te - ts);
+        if (res.score >= 0.70f) {
+            printf(" -> [EARLY EXIT on genuine match!]\n");
+            break;
+        }
+        printf("\n");
+    }
+    double tc1 = get_time_ms();
+    printf("  >>> Total verify time with early exit: %.2f ms (probe + match) <<<\n\n",
+           (tp1 - tp0) + (tc1 - tc0));
+
+    syna_matcher_context_free(ctx);
+}
+
 int main(void)
 {
     printf("Running syna_matcher unit tests...\n");
@@ -185,6 +262,8 @@ int main(void)
     test_known_shift();
     test_uncorrelated_rejection();
     test_odd_rotations();
+    benchmark_5_templates();
     printf("All syna_matcher unit tests passed!\n");
     return 0;
 }
+

@@ -32,7 +32,7 @@ GPtrArray *syna_template_decode(GVariant *data)
         GVariant *arrays;
         g_variant_get(data, "(u@aad)", &version, &arrays);
         gsize count = g_variant_n_children(arrays);
-        if (version != 1 || count < 1 || count > SYNA_ENROLL_STAGES) {
+        if (version != 1 || count < 1 || count > SYNA_MAX_TEMPLATE_SAMPLES) {
             g_variant_unref(arrays);
             goto invalid;
         }

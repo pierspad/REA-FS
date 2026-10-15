@@ -123,3 +123,15 @@ test_pipeline_bin = executable('test_pipeline',
     dependencies: [m_dep])
 test('pipeline_tests', test_pipeline_bin)
 
+test_burst_bin = executable('test_burst',
+    sources: ['tests/test_burst_frames.c', 'src/syna_mode2.c', 'src/syna_matcher.c'],
+    include_directories: driver_includes,
+    dependencies: [m_dep])
+test('burst_tests', test_burst_bin)
+
+test_real_scores_bin = executable('test_real_scores',
+    sources: ['tests/test_real_scores.c', 'src/syna_mode2.c', 'src/syna_matcher.c'],
+    include_directories: driver_includes,
+    dependencies: [m_dep])
+test('real_scores_tests', test_real_scores_bin)
+

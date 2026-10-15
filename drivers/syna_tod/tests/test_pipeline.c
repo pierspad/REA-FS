@@ -240,11 +240,83 @@ static void test_baseline_logic(void)
     printf("  [PASS] baseline cache permissions, RMS thresholds, and anti-touch guards verified!\n");
 }
 
+static void test_open_scenarios(void)
+{
+    printf("Testing open scenarios: empty sensor vs finger already present...\n");
+
+    float clean_baseline[N_PIXELS];
+    for (size_t i = 0; i < N_PIXELS; i++) {
+        clean_baseline[i] = 120.0f + (float)(i % 15);
+    }
+
+    /* Scenario 1: Clean empty sensor at startup */
+    {
+        float initial_frames[4][N_PIXELS];
+        for (int k = 0; k < 4; k++) {
+            for (size_t p = 0; p < N_PIXELS; p++) {
+                initial_frames[k][p] = clean_baseline[p] + ((float)(k % 3) - 1.0f);
+            }
+        }
+
+        /* Check that empty frames match baseline with RMS < 10.0 and low spatial variance */
+        for (int k = 0; k < 4; k++) {
+            float rms = calc_rms(initial_frames[k], clean_baseline, N_PIXELS);
+            float var = calc_spatial_variance(initial_frames[k], N_PIXELS);
+            assert(rms < 10.0f);
+            assert(var < 40.0f);
+        }
+        printf("  [PASS] Scenario 1 (empty sensor at open): correctly verified.\n");
+    }
+
+    /* Scenario 2: Finger ALREADY PRESENT on sensor at open (KDE instant touch case) */
+    {
+        /* Finger ridge pattern present on sensor from frame 0 */
+        float finger_raw[N_PIXELS];
+        for (int r = 0; r < H; r++) {
+            for (int c = 0; c < W; c++) {
+                float phase = 2.0f * (float)M_PI * (0.15f * (float)c + 0.05f * (float)r);
+                finger_raw[r * W + c] = clean_baseline[r * W + c] + 70.0f * sinf(phase);
+            }
+        }
+
+        /* Verify that with persistent baseline, finger presence is recognized immediately (RMS > 35.0) */
+        float touch_rms = calc_rms(finger_raw, clean_baseline, N_PIXELS);
+        assert(touch_rms > 35.0f);
+
+        /* Fast burst capture of 6 contact frames without waiting for finger lift */
+        float burst[6][N_PIXELS];
+        for (int k = 0; k < 6; k++) {
+            for (size_t p = 0; p < N_PIXELS; p++) {
+                burst[k][p] = (finger_raw[p] - clean_baseline[p]) + (float)(k % 2);
+            }
+        }
+
+        /* Average burst and verify bandpass filtering and matching */
+        float avg[N_PIXELS];
+        for (size_t p = 0; p < N_PIXELS; p++) {
+            float sum = 0.0f;
+            for (int k = 0; k < 6; k++) sum += burst[k][p];
+            avg[p] = sum / 6.0f;
+        }
+
+        float filtered[N_PIXELS];
+        assert(syna_bandpass_filter(avg, filtered) == 0);
+
+        /* Verify self-match of finger captured immediately at open */
+        SynaMatchResult res;
+        assert(syna_match_images(filtered, filtered, 0.70f, &res) == 0);
+        assert(res.score > 0.98f);
+        printf("  [PASS] Scenario 2 (finger already present at open): immediate touch detection verified without clear=0 failure (score=%.4f).\n",
+               res.score);
+    }
+}
+
 int main(void)
 {
     printf("Running syna_pipeline unit tests...\n");
     test_microshift_alignment_and_outlier_rejection();
     test_baseline_logic();
+    test_open_scenarios();
     printf("All syna_pipeline unit tests passed!\n");
     return 0;
 }

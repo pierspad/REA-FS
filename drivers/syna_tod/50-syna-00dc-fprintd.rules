@@ -1,0 +1,10 @@
+/* Allow active local desktop sessions to enroll, verify, and manage fingerprints
+ * without repeated Polkit password prompts per finger. */
+polkit.addRule(function(action, subject) {
+    if ((action.id == "net.reactivated.fprint.device.enroll" ||
+         action.id == "net.reactivated.fprint.device.verify" ||
+         action.id == "net.reactivated.fprint.device.setusername") &&
+        subject.local && subject.active) {
+        return polkit.Result.YES;
+    }
+});

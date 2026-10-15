@@ -33,7 +33,7 @@ def private_write(path, text):
 def preflight():
     repos = {}
     for name, path in [('REA-FS', ROOT), ('libfprint', ROOT/'workspace/libfprint'),
-                       ('rea', ROOT/'workspace/rea'), ('synaTudor-fork', ROOT/'workspace/synaTudor-fork')]:
+                       ('rea', ROOT/'workspace/rea')]:
         if not path.is_dir():
             repos[name] = {'available': False}
             continue
