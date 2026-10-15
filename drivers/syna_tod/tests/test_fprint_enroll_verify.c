@@ -93,7 +93,28 @@ int main(int argc, char **argv)
         g_object_unref(ctx);
         return 1;
     }
-    g_print("[PASS] Finger successfully enrolled!\n\n");
+    g_print("[PASS] Finger successfully enrolled!\n");
+
+    /* Verify serialization and deserialization (as fprintd does when storing to disk) */
+    guchar *ser_data = NULL;
+    gsize ser_len = 0;
+    if (!fp_print_serialize(enrolled_print, &ser_data, &ser_len, &error)) {
+        g_print("[FAIL] Template serialization failed: %s\n", error ? error->message : "unknown");
+        g_clear_error(&error);
+    } else {
+        g_print("  [Disk Storage] Template serialized to %zu bytes (fprintd compatible)\n", ser_len);
+        FpPrint *deserialized_print = fp_print_deserialize(ser_data, ser_len, &error);
+        if (deserialized_print) {
+            g_print("  [Disk Storage] Template successfully deserialized from storage format!\n");
+            g_object_unref(enrolled_print);
+            enrolled_print = deserialized_print;
+        } else {
+            g_print("[FAIL] Deserialization failed: %s\n", error ? error->message : "unknown");
+            g_clear_error(&error);
+        }
+        g_free(ser_data);
+    }
+    g_print("\n");
 
     /* Step 3: Verify */
     g_print("------------------------------------------------------\n");

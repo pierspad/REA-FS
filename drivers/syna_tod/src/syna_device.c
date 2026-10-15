@@ -590,9 +590,15 @@ syna_enroll_thread (GTask *task, gpointer source_object, gpointer task_data, GCa
 
     FpPrint *print = NULL;
     fpi_device_get_enroll_data (FP_DEVICE (self), &print);
+    /* Construct GVariant for fpi-data so libfprint / fprintd can serialize to disk */
+    GVariant *fp_data = g_variant_new_fixed_array (G_VARIANT_TYPE_BYTE,
+                                                   template_sample,
+                                                   SYNA_OUTPUT_ROWS * SYNA_SAMPLE_BYTES * sizeof (float),
+                                                   sizeof (guint8));
     fpi_print_set_type (print, FPI_PRINT_RAW);
+    g_object_set (print, "fpi-data", fp_data, NULL);
 
-    /* Attach raw template data to FpPrint object */
+    /* Attach raw template data to FpPrint object for in-memory tests */
     GBytes *bytes = g_bytes_new (template_sample, SYNA_OUTPUT_ROWS * SYNA_SAMPLE_BYTES * sizeof (float));
     g_object_set_data_full (G_OBJECT (print), "syna_template", bytes, (GDestroyNotify)g_bytes_unref);
 
@@ -630,21 +636,31 @@ syna_verify_thread (GTask *task, gpointer source_object, gpointer task_data, GCa
     FpPrint *enrolled_print = NULL;
     fpi_device_get_verify_data (FP_DEVICE (self), &enrolled_print);
 
-    GBytes *enrolled_bytes = g_object_get_data (G_OBJECT (enrolled_print), "syna_template");
+    GVariant *fp_data = NULL;
+    g_object_get (enrolled_print, "fpi-data", &fp_data, NULL);
     const float *enrolled_sample = NULL;
-    if (enrolled_bytes) {
-        enrolled_sample = (const float *)g_bytes_get_data (enrolled_bytes, NULL);
-    } else if (self->enrolled_templates->len > 0) {
-        enrolled_sample = g_ptr_array_index (self->enrolled_templates, 0);
+
+    if (fp_data) {
+        gsize n_elements = 0;
+        enrolled_sample = (const float *)g_variant_get_fixed_array (fp_data, &n_elements, sizeof (guint8));
+    } else {
+        GBytes *enrolled_bytes = g_object_get_data (G_OBJECT (enrolled_print), "syna_template");
+        if (enrolled_bytes) {
+            enrolled_sample = (const float *)g_bytes_get_data (enrolled_bytes, NULL);
+        } else if (self->enrolled_templates->len > 0) {
+            enrolled_sample = g_ptr_array_index (self->enrolled_templates, 0);
+        }
     }
 
     if (!enrolled_sample) {
+        if (fp_data) g_variant_unref (fp_data);
         g_task_return_new_error (task, G_IO_ERROR, G_IO_ERROR_NOT_FOUND, "No enrolled template to verify against");
         return;
     }
 
     float *live_sample = syna_capture_finger_sample (self, cancellable, &error);
     if (!live_sample) {
+        if (fp_data) g_variant_unref (fp_data);
         g_task_return_error (task, error);
         return;
     }
@@ -652,12 +668,16 @@ syna_verify_thread (GTask *task, gpointer source_object, gpointer task_data, GCa
     SynaMatchResult match_res;
     syna_match_images (enrolled_sample, live_sample, 0.65f, &match_res);
     g_free (live_sample);
+    if (fp_data) g_variant_unref (fp_data);
 
     g_message ("Synaptics verify score: %.3f (threshold: %.2f, rotation: %.1f deg, overlap: %.1f%%)",
                match_res.score, (float)SYNA_MATCH_THRESHOLD, match_res.angle, match_res.overlap * 100.0f);
 
-    FpiMatchResult res = (match_res.score >= SYNA_MATCH_THRESHOLD) ? FPI_MATCH_SUCCESS : FPI_MATCH_FAIL;
-    fpi_device_verify_report (FP_DEVICE (self), res, enrolled_print, NULL);
+    if (match_res.score >= SYNA_MATCH_THRESHOLD) {
+        fpi_device_verify_report (FP_DEVICE (self), FPI_MATCH_SUCCESS, enrolled_print, NULL);
+    } else {
+        fpi_device_verify_report (FP_DEVICE (self), FPI_MATCH_FAIL, NULL, NULL);
+    }
     g_task_return_boolean (task, TRUE);
 }
 
