@@ -1,10 +1,10 @@
 # Progetto: supporto Linux per Synaptics 06cb:00dc
 
-Stato: proposta. Nessun driver ancora implementato. Base: `docs/research-06cb-00dc.md`.
+Stato: progetto storico, in parte implementato nel modulo TOD. Il bootstrap pubblico, la calibrazione OEM completa e la validazione biometrica restano aperti; vedere [audit](audit-2026-10-15.md). Base: `docs/research-06cb-00dc.md`.
 
 ## Vincoli verificati
 
-- Inizializzazioni di pairing e cattura cifrate/firmate dal vendor → **non distribuibili**, vanno estratte a runtime dal pacchetto Acer ufficiale (`5.5.2.1124`, SHA256 in checkpoint) scaricato o fornito dall'utente.
+- Inizializzazioni OEM opache: **diritti di distribuzione da chiarire**, non deducibili da cifratura o firma. Nel prototipo sono dati privati ottenuti dal pacchetto Acer ufficiale (`5.5.2.1124`, SHA256 in checkpoint) scaricato o fornito dall'utente.
 - Nessuna flash utente sul sensore (0 partizioni) → template e chiave host vanno salvati sul PC, permessi 0600.
 - Matching sull'host; area 144×56 (~11×4 mm ipotizzati): NBIS/Bozorth non è sufficiente da solo.
 

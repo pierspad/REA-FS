@@ -1,155 +1,77 @@
 # REA-FS
 
-Un percorso assistito da agenti per indagare sensori di impronte non supportati e sviluppare driver per libfprint. L’utente prepara gli accessi, avvia il proprio agente e interviene quando serve un’azione fisica sul sensore.
+Reverse engineering assistito da agenti per studiare lettori di impronte non supportati e sviluppare driver Linux. Il percorso parte dall’hardware dell’utente, conserva evidenze e checkpoint e richiede interventi fisici solo quando un esperimento è pronto.
 
-Questo repository contiene documentazione, checklist operative e un decoder offline sperimentale. Non contiene ancora un orchestratore, una GUI o un driver nuovo; il funzionamento su un sensore va dimostrato con test hardware.
+## Parti da questo messaggio
 
-## 1. Prepara gli accessi
+Clona questa repository, aprila con un agente che possa leggere file ed eseguire comandi e incolla:
 
-- [ ] Installa Git e un client SSH; scegli un coding agent con accesso al terminale.
-- [ ] Configura l’accesso GitHub. Per contribuire, usa il tuo fork di REA-FS.
-- [ ] Crea un account su **gitlab.freedesktop.org** e registra la tua chiave pubblica SSH. È un servizio distinto da gitlab.com.
-- [ ] Crea lì un fork personale di [libfprint](https://gitlab.freedesktop.org/libfprint/libfprint), se vuoi pubblicare modifiche. Per studiare il codice basta clonare l’upstream.
-
-Integra questi blocchi nel tuo `~/.ssh/config`, adattando le chiavi e senza duplicare configurazioni esistenti:
-
-```sshconfig
-Host github.com
-    HostName github.com
-    User git
-    IdentityFile ~/.ssh/LA_TUA_CHIAVE_GITHUB
-    IdentitiesOnly yes
-
-Host gitlab.freedesktop.org ssh.gitlab.freedesktop.org
-    HostName ssh.gitlab.freedesktop.org
-    User git
-    IdentityFile ~/.ssh/id_ed25519_freedesktop
-    IdentitiesOnly yes
-```
-
-Se usi già alias o regole Git `insteadOf`, mantienili e verifica l’host risultante. Al primo collegamento verifica la chiave del server; non disabilitare il controllo delle host key.
+> Leggi AGENTS.md, README.md, docs/repositories.md, docs/preferences.md e docs/agent-workflow.md. Leggi le preferenze locali se presenti e riprendi il checkpoint pertinente. Il mio obiettivo è studiare il lettore di impronte di questo computer e, se tecnicamente possibile, renderlo utilizzabile su Linux. Identifica prima hardware, sistema e supporto esistente; non assumere che il mio sensore sia quello dell’esempio Synaptics. Chiedimi una sola volta le preferenze mancanti, salva le risposte localmente e procedi senza riconferme nelle categorie già autorizzate. Scegli la modalità interattiva o una finestra temporale annunciata secondo le capacità reali del tuo client. Guidami con un’azione fisica alla volta, solo quando il test è in ascolto, indicando scadenza e segnale di successo. Non interpretare il silenzio come conferma. Confronta fonti, verifica ipotesi e prepara strumenti ripetibili invece di accumulare comandi ad hoc. Salva fatti, ipotesi, errori, revisioni e prossimo passo. Proteggi chiavi e dati biometrici; niente pubblicazione automatica. Non promettere un driver né dichiarare riuscite prove non eseguite. Se il lavoro è bloccato, spiega l’evidenza e il requisito concreto per continuare.
 
 ```sh
-ssh -T git@github.com
-ssh -T git@ssh.gitlab.freedesktop.org
-```
-
-Controlla il messaggio di benvenuto: alcuni servizi restituiscono un codice diverso da zero anche con autenticazione riuscita.
-
-## 2. Prepara le repository
-
-```sh
-git clone git@github.com:pierspad/REA-FS.git
+git clone https://github.com/pierspad/REA-FS.git
 cd REA-FS
-mkdir -p workspace
-git clone git@github.com:morluto/rea.git workspace/rea
 ```
 
-Per libfprint scegli **una sola** alternativa. Sostituisci `TUO_NAMESPACE` con il namespace reale del fork:
+Per leggere il progetto non servono account freedesktop, chiavi SSH o privilegi amministrativi. Gli accessi per contribuire si preparano quando servono: [repository, identità e destinazioni](docs/repositories.md).
+
+## Cosa è disponibile
+
+| Parte | Stato e limiti |
+| --- | --- |
+| Workflow generico per altri sensori | Documentazione e strumenti locali; l’agente adatta gli esperimenti al protocollo osservato |
+| Decoder e confronto offline | `tools/`: formato osservato su **06cb:00dc**, non un decoder universale |
+| Driver C sperimentale | `drivers/syna_tod/`: modulo per il **fork libfprint TOD**, non driver integrato nell’upstream |
+| Prova hardware del 15 ottobre 2026 | Cinque appoggi, rilettura del template serializzato e una verifica genuina riuscita; nessuna stima affidabile di FAR/FRR |
+| Altri modelli o revisioni | Supporto da investigare; lo stesso marchio o VID/PID non garantisce compatibilità |
+
+Il prototipo Synaptics usa credenziali e dati OEM privati **assenti da un clone pulito**. Non è ancora un’installazione automatica per nuovi proprietari dello stesso sensore. Il successo riferito dall’utente nello sblocco KDE riguarda la versione precedentemente installata; la nuova build locale deve essere valutata separatamente.
+
+## Orientati nel progetto
+
+- [Procedura dell’agente](docs/agent-workflow.md): discovery, ricerca, esperimenti e checkpoint.
+- [Preferenze e autorizzazioni](docs/preferences.md): autonomia concordata, dati privati e delega.
+- [Guida completa al processo](docs/how-it-works.md): hardware, protocollo, immagini, matching, desktop e aspetti legali.
+- [Audit e preparazione dei contributi](docs/audit-2026-10-15.md): cosa funziona, cosa manca e destinazione delle patch.
+- [Driver Synaptics: uso e limiti](docs/driver-installation.md).
+- [Ricerca Synaptics](docs/research-06cb-00dc.md), [progetto del driver](docs/design-06cb-00dc-driver.md) e [handover](docs/agent-handover.md): contesto storico, da leggere rispettando le correzioni successive.
+- [Modello per una nuova indagine](docs/templates/investigation.md).
+
+## Strumenti ripetibili
+
+Python 3, libreria standard per gli script di workflow. Il decoder/confronto può richiedere NumPy; la build C richiede il pacchetto di sviluppo del **fork TOD** e le dipendenze elencate da Meson. L’agente verifica la distribuzione prima di proporre installazioni.
 
 ```sh
-# Per contribuire dal tuo fork:
-git clone git@ssh.gitlab.freedesktop.org:TUO_NAMESPACE/libfprint.git workspace/libfprint
-git -C workspace/libfprint remote add upstream git@ssh.gitlab.freedesktop.org:libfprint/libfprint.git
+# Crea una sessione NUOVA, privata; sessions/ esiste? Creala solo se manca.
+mkdir -p sessions
+python scripts/rea-fs.py init-session --sensor 'BUS:ID-OSSERVATO' \
+  --directory sessions/la-mia-indagine
+
+# Legge metadati locali; non apre il sensore, non contatta remote.
+python scripts/rea-fs.py preflight --output sessions/la-mia-indagine/preflight.json
+
+# Test offline Python, build locale e test C; nessuna prova hardware.
+python scripts/rea-fs.py check
+
+# Riassume tentativi etichettati manualmente, senza immagini o chiavi.
+python scripts/rea-fs.py summarize sessions/la-mia-indagine/attempts.csv --threshold 0.5
 ```
+
+`preflight` contiene metadati privati, incluse identità Git: rivedilo prima di condividerlo. I file nuovi sono creati con permessi 0600, le directory di sessione con 0700; i comandi di creazione rifiutano le destinazioni già esistenti.
+
+Il CSV dei tentativi ha intestazione `kind,score,seconds,status`, con `kind` = `genuine`/`impostor` e `status` = `ok`/`timeout`/`error`. Il riepilogo separa gli errori di acquisizione dai confronti conclusi. Le percentuali descrivono quei tentativi, non una certificazione del matcher.
+
+Per il decoder specifico:
 
 ```sh
-# Per iniziare dall’upstream ufficiale:
-git clone git@ssh.gitlab.freedesktop.org:libfprint/libfprint.git workspace/libfprint
+python tools/raw_frames.py --input sessions/SESSIONE/capture.bin \
+  --output sessions/SESSIONE/frame.pgm --frame 0 --encoder-mode 2 --allow-partial-tail
 ```
 
-`workspace/` è ignorata: i clone restano repository indipendenti, senza submodule e senza imporre il fork del manutentore. L’elenco delle sorgenti è in [docs/repositories.md](docs/repositories.md).
+Il formato osservato ha righe da 152 byte ×112 = **17.024 byte per frame**; dopo media delle coppie e decodifica produce 144×56 campioni. La CLI offline non applica la calibrazione OEM. L’output deve essere nuovo, input massimo 64 MiB; `--allow-partial-tail` tollera solo una coda incompleta.
 
-## 3. Verifica le identità
+## Interazione e riservatezza
 
-L’account autenticato dipende dalla chiave SSH; nome ed email dei commit dipendono da Git. Sono configurazioni distinte. Per il solo clone di libfprint puoi impostare:
+Con un client interattivo l’agente avvia un processo e osserva gli eventi prima di chiedere «APPOGGIA IL DITO». Con un client che non può interagire durante il comando prepara una finestra temporale con istruzioni e segnali locali già visibili all’utente; analizza poi l’intera registrazione, senza inventare conferme. [Dettagli operativi](docs/agent-workflow.md#modalità-del-client-interattiva-o-a-finestra).
 
-```sh
-git -C workspace/libfprint config --local core.sshCommand 'ssh -i ~/.ssh/id_ed25519_freedesktop -o IdentitiesOnly=yes'
-git -C workspace/libfprint config --local user.name 'IL_TUO_NOME'
-git -C workspace/libfprint config --local user.email 'LA_TUA_EMAIL_FREEDESKTOP'
-```
-
-Se hai profili per directory con `includeIf`, usa un profilo specifico per il clone invece di duplicare nome ed email locali. Non modificare alla cieca il profilo globale.
-
-```sh
-git -C workspace/libfprint config --show-origin --get user.name
-git -C workspace/libfprint config --show-origin --get user.email
-git -C workspace/libfprint config --show-origin --get core.sshCommand
-git -C workspace/libfprint remote -v
-git config --show-origin --get user.email
-```
-
-- [ ] L’accesso freedesktop riconosce il tuo account.
-- [ ] Nome ed email in libfprint sono quelli desiderati.
-- [ ] In REA-FS rimane il tuo profilo GitHub.
-- [ ] `origin` punta al tuo fork, oppure sai che stai lavorando sul clone upstream. L’accesso SSH non dà automaticamente permessi di push sull’upstream.
-
-## 4. Avvia il tuo agente
-
-Leggi [le preferenze dell’indagine](docs/preferences.md): puoi scegliere autorizzazioni richieste oppure autonomia nell’ambito concordato, e decidere quando usare subagent/modelli economici. Se non hai già scelto in chat o compilato il file locale, l’agente ti presenta le domande una volta e salva le risposte in `.rea-fs.local/preferences.json`. Il [modello di partenza](docs/preferences.example.json) usa autorizzazioni richieste e nessuna delega. Le tue scelte locali non vengono pubblicate con la repository.
-
-Apri REA-FS nel tuo agente e incolla:
-
-> Leggi AGENTS.md, applica docs/preferences.md e segui docs/agent-workflow.md in ordine. Verifica prima le repository e le identità Git, poi identifica il sensore senza modificarlo. Riprendi una sessione esistente se presente. Indaga supporto esistente, fonti e protocolli; prepara modifiche a libfprint solo quando sostenute dalle evidenze. Procedi autonomamente nelle attività già autorizzate e chiamami quando serve un’azione sul sensore, indicando esattamente cosa fare. Salva stato, risultati e prossimo passo a ogni fase. Non dichiarare riuscito un test hardware non eseguito.
-
-L’agente controlla gli strumenti disponibili. Per attivare REA, consulta il README del clone e rivedi la procedura prima di eseguirla: clonarlo non installa né configura il server MCP. REA è un’integrazione opzionale; l’indagine può usare altri strumenti disponibili.
-
-## 5. Durante le prove
-
-L’agente deve dare istruzioni brevi e contestuali:
-
-- **ATTENDI** — analisi o preparazione in corso; non toccare il sensore.
-- **APPOGGIA IL DITO** — il test è pronto: quale dito, per quanto tempo e quale segnale attendere.
-- **RIMUOVI IL DITO** — rimuovilo e attendi il prossimo messaggio.
-- **AZIONE RICHIESTA** — una sola operazione precisa, con il motivo.
-- **BLOCCATO / COMPLETATO** — risultato verificato e prossimo passo.
-
-Le istruzioni fisiche vanno inviate quando il test è davvero in ascolto. Il silenzio non conferma un’azione: serve un evento hardware o una risposta dell’utente. Ogni attesa deve avere una scadenza e una procedura per riprendere o interrompere.
-
-Una GUI persistente potrà mostrare questi stessi stati, il test corrente e i comandi «eseguito» e «interrompi». È un’estensione futura; oggi l’interazione avviene tramite agente e terminale.
-
-Le tracce possono contenere dati biometrici. Concorda con l’agente cosa raccogliere prima delle acquisizioni. Sessioni e dati locali non vanno pubblicati automaticamente.
-
-## Analisi offline del flusso osservato
-
-`tools/raw_frames.py` legge il formato RAW verificato sul sensore USB 06cb:00dc di questa indagine: righe di 152 byte, 112 righe per frame, coppie adiacenti → 144×56 campioni. Valida intestazioni e contatori; non acquisisce dati dal dispositivo, non applica calibrazione o sottrazione della baseline e non è un driver. Vedi [risultati e limiti](docs/research-06cb-00dc.md).
-
-`tools/placement_overlap.py` stima la sovrapposizione rigida fra due immagini decodificate (solo NumPy) come diagnostico indipendente dalle minutiae; non è una decisione di riconoscimento. Il registro dei passaggi fra agenti è in [docs/agent-handover.md](docs/agent-handover.md).
-
-```sh
-python tools/raw_frames.py --input sessions/LA_TUA_SESSIONE/capture.bin \
-    --output sessions/LA_TUA_SESSIONE/frame.pgm --frame 0 --encoder-mode 2 --allow-partial-tail
-python -m unittest discover -v
-```
-
-La modalità encoder va verificata nel programma di acquisizione. Per il programma OEM di questa sessione è `2`: espande gruppi di 16 campioni dopo la media delle righe ripetute. Il default `raw` conserva il piano dei campioni codificati, che non equivale a un’immagine dell’impronta. Anche la modalità `2` senza calibrazione è solo diagnostica: la CLI non stima né applica la baseline del sensore.
-
-L’output deve essere un file nuovo: viene creato con permessi 0600. Input massimo 64 MiB. Ometti `--allow-partial-tail` per rifiutare anche una coda incompleta; l’opzione non corregge frame corrotti e non cerca automaticamente l’allineamento. Conserva eventuali immagini biometriche nelle sessioni locali ignorate.
-
-## Driver libfprint-tod per Synaptics 06cb:00dc
-
-Il modulo driver out-of-tree per `libfprint-2-tod-1` è implementato in `drivers/syna_tod/`.
-Supporta il sensore Synaptics `06cb:00dc` presente su Acer Aspire A514-54 con:
-- Handshake crittografico TLS 1.2 / ECDH P-256 e record protetti AES-256-CBC + HMAC-SHA256
-- Decodifica Mode-2 Kronecker su frame da 16.128 byte
-- Matcher FFT 2D passa-banda e correlazione normalizzata (soglia 0.50, discriminazione genuino/impostore verificata)
-- Integrazione nativa con `fprintd` per autenticazione desktop Linux
-
-Guida completa di compilazione, test e installazione: **[docs/driver-installation.md](docs/driver-installation.md)**.
-
-```bash
-# Compilazione ed esecuzione dei test unitari
-cd drivers/syna_tod
-meson setup build
-ninja -C build
-meson test -C build -v
-
-# Test interattivo di registrazione e verifica (senza sudo)
-FP_TOD_DRIVERS_DIR=$PWD/build ./build/test_fprint_enroll_verify
-
-# Installazione di sistema per fprintd (richiede sudo)
-cd ../..
-sudo ./scripts/install-tod-driver.sh
-```
-
+`workspace/`, `sessions/`, `.rea-fs.local/` e le credenziali locali sono ignorati. `.gitignore` non è una garanzia contro la pubblicazione accidentale: controllare sempre file tracciati e diff. Niente chiavi, template, scansioni o binari OEM nei contributi. Nessun orchestratore o GUI è necessario per seguire questo workflow. REA è un’integrazione opzionale: clonarlo non configura il suo MCP.

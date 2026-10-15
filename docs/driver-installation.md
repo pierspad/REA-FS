@@ -1,128 +1,78 @@
-# Guida all'installazione e all'uso del driver libfprint-tod per Synaptics 06cb:00dc
+# Driver sperimentale Synaptics 06cb:00dc
 
-Questo documento descrive come compilare, testare e installare il driver out-of-tree **libfprint-tod** per il sensore d'impronte Synaptics `06cb:00dc` (ROM 6.20 build 154, modulo 0x2449, Acer Aspire A514-54).
+Modulo C singolo `libsyna_00dc_tod.so` per **libfprint TOD**. Non funziona caricandolo nella libfprint upstream ordinaria. Non è una DLL Windows né un plugin per synaTudor. Ambito provato: Acer Aspire A514-54, USB 06cb:00dc revisione 0154, ROM 6.20 build 154, modulo 0x2449. L’attuale binding controlla VID/PID: il controllo delle varianti interne deve ancora essere implementato prima di estendere il supporto.
 
----
+## Prerequisiti e build
 
-## 1. Architettura del Driver (`drivers/syna_tod/`)
+L’agente verifica i pacchetti disponibili sulla distribuzione. Servono Meson, Ninja, compilatore C, pkg-config, header pubblici libfprint e header interni TOD, OpenSSL >=3, GUsb, libusb, GLib e GIO. Il pacchetto upstream che offre soltanto l’API pubblica non basta. Non usare automaticamente comandi di installazione di un’altra distribuzione.
 
-A causa dei blob di inizializzazione proprietari e cifrati/firmati da Acer (`5.5.2.1124`) non ridistribuibili nell'albero principale di `libfprint`, il driver è implementato come modulo condiviso per **`libfprint-2-tod-1`** (`libsyna_00dc_tod.so`).
-
-Il driver esporta l'entry point standard TOD `fpi_tod_shared_driver_get_type()` e include:
-1. **`syna_mode2`**: Decodifica vettoriale matrice Kronecker M 16×16, normalizzazione baseline floating-point prima del clipping a 8 bit.
-2. **`syna_matcher`**: Filtro passa-banda 2D e matcher rigido a correlazione incrociata normalizzata con compensazione rotazione (-20°..+20°). Discrimina l'indice genuino (score 0.64–0.94) da dita impostatrici (score 0.08–0.30) con soglia decisionale 0.50.
-3. **`syna_tls`**: Client crittografico TLS 1.2 OpenSSL EVP/HMAC su USB bulk (handshake ClientHello/Flight 2, ECDH P-256 effimero, AES-256-CBC, HMAC-SHA256, alert close_notify).
-4. **`syna_oem`**: Caricatore credenziali e blob Acer protetti (`host_key.pem`, `host_cert.bin`, `server_ecdh_pub.bin`, `capture_init.bin`, `capture_packet.bin`).
-5. **`syna_device`**: Sottoclasse `FpDevice` con supporto completo delle azioni asincrone di apertura, chiusura, rilevamento contatto tramite RMS e segnalazione eventi `FpFingerStatusFlags` (`FP_FINGER_STATUS_NEEDED`, `FP_FINGER_STATUS_PRESENT`).
-
----
-
-## 2. Prerequisiti di Sistema
-
-Su distribuzioni Arch / CachyOS / Fedora / Ubuntu:
-```bash
-# Dipendenze di compilazione
-sudo pacman -S meson ninja gcc pkgconf libfprint-tod openssl libgusb libusb glib2
-# oppure su Ubuntu:
-# sudo apt install meson ninja-build libfprint-2-tod-dev libssl-dev libgusb-dev libusb-1.0-0-dev libglib2.0-dev
+```sh
+meson setup drivers/syna_tod/build drivers/syna_tod
+ninja -C drivers/syna_tod/build
+meson test -C drivers/syna_tod/build --print-errorlogs
 ```
 
----
+Se la build esiste, iniziare da Ninja. Sei suite C: decoder, matcher, record crittografici/PRF, caricatore OEM con fixture sintetiche template e calcolo dei timeout. Non accedono al sensore e non richiedono chiavi reali. Un test PRF deterministico e un roundtrip non sono validazione indipendente del protocollo; la suite non costituisce un audit crittografico.
 
-## 3. Compilazione ed Esecuzione dei Test Unitari
+## Materiale privato necessario
 
-Dalla radice del repository:
-```bash
-cd drivers/syna_tod
-meson setup build
-ninja -C build
-meson test -C build -v
+Il modulo richiede cinque file: `host_key.pem`, `host_cert.bin` (184 byte), `server_ecdh_pub.bin` (65), `capture_init.bin` (4676), `capture_packet.bin` (1917). Devono appartenere al dispositivo e alla configurazione pertinenti. Non copiarli da un’altra persona. Il caricatore controlla dimensioni e formato di base, non prova da solo l’identità o l’autenticità di tutto il materiale.
+
+Per una sessione già investigata con i layout documentati:
+
+```sh
+python scripts/setup-tod-credentials.py \
+  --session-dir sessions/LA_SESSIONE_ESISTENTE \
+  --out-dir .rea-fs.local/credentials-export
 ```
 
-Tutti i 4 test unitari vengono eseguiti automaticamente:
-- `mode2_tests`: Verifica decodifica Kronecker, offset di baseline e integrità frame.
-- `matcher_tests`: Verifica correlazione identica (1.00), shift noti e rigetto di impronte incorrelate (0.01 vs soglia 0.50).
-- `tls_tests`: Verifica derivazione PRF RFC 5246 e roundtrip crittografico AES-256-CBC + HMAC-SHA256 con rilevamento manomissioni.
-- `oem_tests`: Verifica caricamento chiavi e blob protetti.
+Questo script **esporta materiale già presente**; non scarica driver, non estrae automaticamente un pacchetto Acer nuovo e non effettua pairing. La destinazione deve essere nuova e il suo genitore deve esistere. Valida tutti gli input prima di scrivere; crea directory 0700 e file 0600, rifiutando sovrascritture. La validazione della chiave PEM effettiva è distinta dal controllo delle dimensioni.
 
----
+Il caricatore legge una directory esplicita, oppure `SYNA_TOD_DATA_DIR`, oppure `/var/lib/fprint/syna_00dc`. Non contiene più percorsi personali o fallback automatici alle sessioni. Un clone pulito non può ancora preparare autonomamente il materiale di un sensore nuovo: questo è un requisito aperto per la distribuzione.
 
-## 4. Test Hardware in Spazio Utente (senza permessi root)
+## Prova locale senza installazione
 
-Il driver può essere testato direttamente contro il sensore fisico senza installare nulla a livello di sistema grazie alla variabile `FP_TOD_DRIVERS_DIR`:
+Con fprintd libero e nessun altro programma che usi il sensore:
 
-### 4.1 Verifica Enumerazione Sensore
-```bash
-FP_TOD_DRIVERS_DIR=$PWD/drivers/syna_tod/build ./drivers/syna_tod/build/test_fprint_context
-```
-Output atteso:
-```text
-Found 1 fingerprint device(s):
-  [0] Driver: syna_00dc_tod
-      Device ID: 0
-      Name: Synaptics 06cb:00dc (Acer Aspire A514-54)
-      Scan type: press
-      Enroll stages: 1
-[PASS] Successfully discovered and bound syna_00dc_tod driver!
+```sh
+SYNA_TOD_DATA_DIR="$PWD/.rea-fs.local/credentials-export" \
+FP_TOD_DRIVERS_DIR="$PWD/drivers/syna_tod/build" \
+  ./drivers/syna_tod/build/test_fprint_enroll_verify
 ```
 
-### 4.2 Test Apertura e Chiusura Crittografica
-```bash
-FP_TOD_DRIVERS_DIR=$PWD/drivers/syna_tod/build ./drivers/syna_tod/build/test_fprint_open
-```
-Output atteso:
-```text
-Testing fp_device_open_sync on Synaptics 06cb:00dc (Acer Aspire A514-54) (syna_00dc_tod)...
-[PASS] Device opened successfully and TLS handshake + OEM init completed!
-Testing fp_device_close_sync...
-[PASS] Device closed cleanly!
-```
+Lasciare il sensore libero durante l’apertura: il prototipo misura lì la baseline. Seguire gli eventi del programma/agente. Sono richiesti **cinque appoggi distinti**, con rilascio fra uno e l’altro. Poi viene verificato un ulteriore appoggio. Ogni cattura ha una scadenza reale di 60 s, oltre ai timeout USB; la calibrazione ha una scadenza di 15 s. Le attese di I/O e cleanup possono aggiungere tempo. Il test serializza e deserializza il template in memoria: non scrive autonomamente un nuovo file di impronte.
 
-### 4.3 Test Interattivo di Registrazione e Riconoscimento
-```bash
-FP_TOD_DRIVERS_DIR=$PWD/drivers/syna_tod/build ./drivers/syna_tod/build/test_fprint_enroll_verify
-```
-Questo comando:
-1. Apre il sensore ed esegue l'handshake TLS e l'init OEM.
-2. Ti chiede di posizionare il dito sul sensore per la registrazione (Enrollment).
-3. Rileva il contatto e calcola il template biometrico tramite FFT 2D.
-4. Ti chiede di riappoggiare il dito per la verifica (Verification).
-5. Mostra il punteggio di correlazione e l'esito di matching.
+Il matcher confronta il campione con i cinque template e prende il massimo; soglia sperimentale 0,50, rotazioni −30…+30°, sovrapposizione minima 65%. Più template possono aumentare anche le false accettazioni: la soglia deve essere valutata sul sistema completo. I template vecchi di un solo appoggio sono leggibili, ma la nuova pipeline richiede una nuova registrazione per una valutazione significativa.
 
----
+## Installazione controllata
 
-## 5. Installazione di Sistema per `fprintd` / PAM Login
+Preparare e verificare prima la build e le credenziali. L’installer non esegue build come root.
 
-Per integrare il driver nel desktop Linux (GDM, SDDM, blocco schermo, `sudo` via impronta):
+```sh
+# Piano leggibile: nessuna modifica di sistema.
+./scripts/install-tod-driver.sh --credentials "$PWD/.rea-fs.local/credentials-export"
 
-### 5.1 Esecuzione dello Script di Installazione
-```bash
-sudo ./scripts/install-tod-driver.sh
-```
-Lo script esegue automaticamente:
-1. Compilazione del modulo `libsyna_00dc_tod.so`.
-2. Copia del modulo in `/usr/lib/libfprint-2/tod-1/libsyna_00dc_tod.so` (permessi 0755).
-3. Estrazione sicura delle chiavi di pairing locali e dei blob Acer in `/var/lib/fprint/syna_00dc/` (permessi 0600).
-4. Installazione della regola udev in `/etc/udev/rules.d/60-syna-00dc-tod.rules` e ricaricamento di `udevadm`.
-5. Riavvio del servizio `fprintd.service`.
-
-### 5.2 Uso con i Comandi Standard `fprintd`
-Una volta installato, il sensore è gestito nativamente dal demone `fprintd`:
-
-```bash
-# Registrazione dell'impronta
-fprintd-enroll
-
-# Verifica dell'impronta registrata
-fprintd-verify
-
-# Lista delle dita registrate
-fprintd-list $USER
+# Solo dopo autorizzazione per installazione di sistema:
+sudo ./scripts/install-tod-driver.sh \
+  --credentials "$PWD/.rea-fs.local/credentials-export" --apply
 ```
 
----
+La directory dei plugin è ricavata da pkg-config. Il comando verifica la chiave, crea un backup privato dei file preesistenti sotto `/var/lib/fprint/syna_00dc-backup.XXXXXX`, installa modulo, credenziali e regola udev, ricarica le regole e riavvia fprintd se attivo. Non modifica PAM. Non è una transazione con rollback automatico; conservare il percorso stampato e controllare ogni errore prima di riprendere.
 
-## 6. Sicurezza e Riservatezza delle Credenziali
+Per ripristinare, un amministratore ferma fprintd e rimette nei rispettivi percorsi il modulo, le credenziali e la regola salvati nel backup, poi ricarica udev. Se un file non esisteva prima, la sua rimozione va decisa in base al piano del backup. Non cancellare template o directory fprintd estranee al modulo. Non disabilitare l’accesso tramite password.
 
-- **Chiavi host e template**: Risiedono esclusivamente nella directory protetta locale `/var/lib/fprint/syna_00dc/` con permessi `0600` (root-only).
-- **Controllo di versione Git**: Tutte le chiavi private (`*.pem`), le catture grezze (`*.bin`), i dump di sessione e i binari di compilazione sono esclusi dal tracciamento Git tramite `.gitignore`. Nessun dato biometrico o crittografico privato viene pubblicato.
+```sh
+fprintd-enroll -f right-index-finger
+fprintd-verify -f right-index-finger
+fprintd-list "$USER"
+```
+
+Il dito da appoggiare è deciso dall’esperimento: `-f right-index-finger` seleziona il template da verificare, non conferma quale dito sia stato fisicamente usato. La prova con un dito diverso deve fallire.
+
+## Stato hardware verificato il 15 ottobre 2026
+
+- Build locale: cinque appoggi, template serializzato/riletto e verifica genuina 0,873, overlap 83,3%; confronto circa 3 s, chiusura segnalata riuscita.
+- Driver installato: hash uguale alla build; fprintd espone `num-enroll-stages=5`, enrollment completato, verifica genuina 0,838 accettata e indice sinistro 0,320 rifiutato.
+- KDE: primo tentativo fallito mentre il driver attendeva il sensore libero (`clear=0`, nessun confronto); successivo riuscito riferito dall’utente in circa 4 s, corroborato da score 0,874 e overlap 75,1% nel log.
+
+Non è ancora dimostrata affidabilità quotidiana. Il primo fallimento resta da isolare; il feedback di contatto non è risultato visibile all’utente nella schermata KDE. Verificare inoltre riavvio, sospensione, cancellazione e più tentativi indipendenti. Queste prove non stimano FAR/FRR di popolazione e non dimostrano resistenza a impronte contraffatte.

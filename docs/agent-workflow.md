@@ -102,3 +102,19 @@ Prossimo passo riproducibile:
 ```
 
 Mantieni i dati sensibili nelle sole directory locali ignorate. Prima di tracciarle altrove, verifica la policy e il consenso per ogni acquisizione.
+
+## Modalità del client: interattiva o a finestra
+
+Scegli in base agli strumenti effettivamente disponibili, non al nome del modello.
+
+**Interattiva:** il processo resta attivo fra le chiamate dell’agente. Prima verifica nei suoi eventi che il sensore sia pronto; poi invia la singola azione fisica. Usa scadenze reali abbastanza lunghe per i tempi della chat (per il prototipo attuale: 60 s per appoggio), non un numero di frame convertito in secondi assumendo una frequenza costante. Un cambiamento di flag software non dimostra da solo che il dito sia stato fisicamente rimosso.
+
+**A finestra:** prima dell’esecuzione presenta l’intera sequenza con segnali locali del tool (terminali visibili o suoni se disponibili) e una durata totale delimitata. L’utente deve poter riconoscere localmente inizio, rimozione e fine: non chiedergli di attendere messaggi che il client non può inviare durante il comando. Per acquisizioni temporali il programma registra timestamp e segnale per tutta la finestra, con limite di dimensione; dopo il ritorno l’agente identifica i contatti osservati. Una sequenza preparata non prova che sia stata eseguita. Se non sono visibili segnali locali né conferme tempestive, prepara un comando che l’utente possa avviare nel proprio terminale e raccogli il suo esito.
+
+Entrambe le modalità richiedono controllo dei prerequisiti, consenso già definito, dati privati e cleanup. Non riusare comandi Synaptics su dispositivi nuovi. Non avviare una registrazione mentre il sensore è usato da un altro processo. Dopo un errore salva l’esito e formula una nuova domanda sperimentale prima di riprovare.
+
+## Strumenti di supporto e valutazione
+
+Usa `scripts/rea-fs.py init-session` per un checkpoint nuovo e `preflight` per i metadati locali; se esiste una sessione pertinente, riprendila invece di crearne un’altra. `check` esegue solo verifiche offline e build; i programmi diagnostici hardware non sono registrati fra i test Meson automatici.
+
+Per valutare il matcher separa appoggi di enrollment, sviluppo della soglia e verifica finale. Più finestre dello stesso contatto non sono appoggi indipendenti. Confrontare il massimo su più template cambia la distribuzione dei punteggi: misurare di nuovo anche le false accettazioni. Mantieni le etichette dei tentativi nel CSV privato descritto nel README; `summarize` non sceglie né modifica soglie. Un successo sullo schermo di blocco prova una specifica integrazione, non una FAR/FRR di popolazione.

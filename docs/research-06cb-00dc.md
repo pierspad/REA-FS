@@ -1,5 +1,7 @@
 # Stato della ricerca: Synaptics USB 06cb:00dc
 
+**Documento progressivo: le prime sezioni descrivono fasi storiche. Per lo stato del driver e le correzioni del 15 ottobre leggere prima [audit](audit-2026-10-15.md) e [guida driver](driver-installation.md).**
+
 Risultati locali del 15 ottobre 2026 su Acer Aspire A514-54, revisione USB 0154. Sono evidenze di un prototipo diagnostico, non supporto disponibile in libfprint. Nessuna modifica al login e nessuna pubblicazione delle acquisizioni.
 
 ## Correzione dell’interpretazione delle immagini
@@ -76,14 +78,14 @@ Verifica offline, senza nuove catture, con `tools/placement_overlap.py` (solo Nu
   - Netto margine di discriminazione biometrica: **Genuini (stesso dito) 0,64 – 0,94** contro **Impostori (dito diverso) 0,08 – 0,30**.
   - Con una soglia di decisione a 0,50, l'algoritmo di sovrapposizione ottiene separazione perfetta tra proprietario e dita diverse su tutti i campioni sperimentali reali.
 
-Conclusione: la pipeline (media coppie raw + decodifica Kronecker modo 2 + correzione baseline + bandpass e sovrapposizione rigida) produce **vero riconoscimento biometrico affidabile** su sensore USB 06cb:00dc, superando il limite della sola estrazione minutiae NBIS sull'area ridotta (144×56).
+Conclusione corretta nell’audit: i campioni disponibili mostrano una separazione osservata tra confronti genuini e un dito diverso. Non dimostrano affidabilità biometrica generale né FAR/FRR nulle. La pipeline offline e quella del driver vanno validate separatamente.
 
 Prossimo passo: implementazione del modulo driver C (libfprint-TOD) che incapsula questa catena algoritmica.
 
 ## Distribuibilità dei blocchi OEM (verifica offline)
 
-- Init pairing (5796 B) e init cattura (4676 B): dopo un'intestazione in chiaro `02 00 00 01` l'entropia per blocchi da 1 KiB è 7,63–7,84 bit/byte, al livello di dati casuali. Sono quindi cifrati o compressi/firmati: non decodificabili né rigenerabili nel codice con le evidenze attuali.
+- Init pairing (5796 B) e init cattura (4676 B): dopo un'intestazione in chiaro `02 00 00 01` l'entropia per blocchi da 1 KiB è 7,63–7,84 bit/byte, al livello di dati casuali. L’entropia elevata è compatibile con compressione o cifratura; non prova una firma né una licenza. Le evidenze attuali non consentono di rigenerare questi blocchi.
 - Programma del modulo (1688 B, entropia 4,86) e costante di calibrazione (56 B, rampa 0x0c…0x43) sono strutturati: candidati a essere ricostruiti come tabelle documentate.
 - Persistenza dell'abbinamento: dopo reset USB la cattura (trial3, trial5) è riuscita senza nuovo `4f`, con la chiave host salvata. Verificata con successo anche la persistenza dopo riavvio completo del sistema (post-reboot probe 2026-10-15): handshake TLS, cleanup `0x0491`, init `06` e chiusura TLS senza rieseguire il pairing (`initializer-repeatability-post-reboot.jsonl`).
 
-Conseguenza: un driver libfprint upstream dovrebbe distribuire o scaricare blob proprietari cifrati, cosa che il progetto non accetta. La via praticabile è un driver fuori albero (modulo TOD o servizio separato) che estrae i blob a runtime dal pacchetto Acer ufficiale fornito dall'utente, come fanno synaTudor e python-validity. L'upstream resta possibile solo con un accordo/licenza del vendor o se il sensore accettasse la cattura senza blob (non ancora provato: tutte le catture riuscite usavano l’init `06`).
+Conclusione corretta nell’audit: il prototipo dipende da payload OEM la cui provenienza e licenza devono essere chiarite. L’upstream rifiuta integrazioni di driver proprietari; l’applicazione di questa policy a firmware/configurazioni e bootstrap di questo dispositivo richiede un confronto specifico, non si deduce dalla sola entropia. Tutte le catture riuscite documentate usavano l’init `06`; un’alternativa indipendente non è stata dimostrata. Vedere l’audit per gli ulteriori blocchi tecnici e di riproducibilità.
