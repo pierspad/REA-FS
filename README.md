@@ -126,3 +126,30 @@ python -m unittest discover -v
 La modalità encoder va verificata nel programma di acquisizione. Per il programma OEM di questa sessione è `2`: espande gruppi di 16 campioni dopo la media delle righe ripetute. Il default `raw` conserva il piano dei campioni codificati, che non equivale a un’immagine dell’impronta. Anche la modalità `2` senza calibrazione è solo diagnostica: la CLI non stima né applica la baseline del sensore.
 
 L’output deve essere un file nuovo: viene creato con permessi 0600. Input massimo 64 MiB. Ometti `--allow-partial-tail` per rifiutare anche una coda incompleta; l’opzione non corregge frame corrotti e non cerca automaticamente l’allineamento. Conserva eventuali immagini biometriche nelle sessioni locali ignorate.
+
+## Driver libfprint-tod per Synaptics 06cb:00dc
+
+Il modulo driver out-of-tree per `libfprint-2-tod-1` è implementato in `drivers/syna_tod/`.
+Supporta il sensore Synaptics `06cb:00dc` presente su Acer Aspire A514-54 con:
+- Handshake crittografico TLS 1.2 / ECDH P-256 e record protetti AES-256-CBC + HMAC-SHA256
+- Decodifica Mode-2 Kronecker su frame da 16.128 byte
+- Matcher FFT 2D passa-banda e correlazione normalizzata (soglia 0.50, discriminazione genuino/impostore verificata)
+- Integrazione nativa con `fprintd` per autenticazione desktop Linux
+
+Guida completa di compilazione, test e installazione: **[docs/driver-installation.md](docs/driver-installation.md)**.
+
+```bash
+# Compilazione ed esecuzione dei test unitari
+cd drivers/syna_tod
+meson setup build
+ninja -C build
+meson test -C build -v
+
+# Test interattivo di registrazione e verifica (senza sudo)
+FP_TOD_DRIVERS_DIR=$PWD/build ./build/test_fprint_enroll_verify
+
+# Installazione di sistema per fprintd (richiede sudo)
+cd ../..
+sudo ./scripts/install-tod-driver.sh
+```
+
