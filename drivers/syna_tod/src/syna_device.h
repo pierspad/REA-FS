@@ -22,6 +22,7 @@ struct _FpiDeviceSyna00dc
     FpDevice parent;
 
     GUsbDevice *usb_device;
+    GMainContext *main_context;
     SynaOemData oem;
     SynaTlsContext tls;
 

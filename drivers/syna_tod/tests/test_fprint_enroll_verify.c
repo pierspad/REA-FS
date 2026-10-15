@@ -16,7 +16,7 @@ on_finger_status (GObject *object, GParamSpec *pspec, gpointer user_data)
     } else if (status & FP_FINGER_STATUS_PRESENT) {
         g_print (">>> [SENSOR] >>> Finger detected! Capturing biometric frames...\n");
     } else {
-        g_print (">>> [SENSOR] >>> Finger removed.\n");
+        g_print (">>> [SENSOR] >>> Sensor status idle (not proof of physical finger removal).\n");
     }
     fflush (stdout);
 }

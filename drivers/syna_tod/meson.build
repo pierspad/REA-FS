@@ -20,6 +20,7 @@ gio_dep = dependency('gio-2.0', required: true)
 
 tod_sources = [
     'src/syna_device.c',
+    'src/syna_template.c',
     'src/syna_mode2.c',
     'src/syna_matcher.c',
     'src/syna_tls.c',
@@ -101,3 +102,13 @@ test_enroll_verify_bin = executable('test_fprint_enroll_verify',
     dependencies: [libfprint_public_dep, glib_dep]
 )
 
+
+test_template_bin = executable('test_template',
+    sources: ['tests/test_template.c', 'src/syna_template.c'],
+    include_directories: driver_includes,
+    dependencies: [glib_dep, m_dep])
+test('template_tests', test_template_bin)
+
+test_timing_bin = executable('test_timing', sources: 'tests/test_timing.c',
+    include_directories: driver_includes, dependencies: glib_dep)
+test('timing_tests', test_timing_bin)
