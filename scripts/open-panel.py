@@ -24,6 +24,8 @@ def main():
             print(f'Creato piano iniziale con simulazione e prove offline: {session}/plan.json',flush=True)
     except OSError as exc:parser.exit(1,f'Impossibile preparare la sessione: {exc}\n')
     env=os.environ.copy()
+    if os.environ.get('WAYLAND_DISPLAY') or os.environ.get('XDG_SESSION_TYPE') == 'wayland':
+        env.setdefault('WINIT_UNIX_BACKEND', 'wayland')
     if platform.system()=='Linux' and platform.machine()=='x86_64' and shutil.which('cc'):
         env.setdefault('CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER','cc')
     return subprocess.call(['cargo','run','--release','--locked','--manifest-path',str(ROOT/'panel/Cargo.toml'),

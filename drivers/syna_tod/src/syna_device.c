@@ -530,7 +530,7 @@ syna_capture_finger_sample (FpiDeviceSyna00dc *self, GCancellable *cancellable, 
 
             /* Phase 1: Ensure sensor is clear before accepting a new touch */
             if (!sensor_cleared) {
-                if (rms > 15.0f) {
+                if (rms > 28.0f) {
                     empty_consecutive_frames = 0;
                     if (!waiting_for_lift) {
                         waiting_for_lift = TRUE;
@@ -540,7 +540,7 @@ syna_capture_finger_sample (FpiDeviceSyna00dc *self, GCancellable *cancellable, 
                     continue;
                 } else {
                     empty_consecutive_frames++;
-                    if (empty_consecutive_frames >= 3) {
+                    if (empty_consecutive_frames >= 2) {
                         sensor_cleared = TRUE;
                         if (waiting_for_lift) {
                             g_print (">>> [SENSOR] >>> Finger lifted! Ready.\n");
@@ -555,8 +555,8 @@ syna_capture_finger_sample (FpiDeviceSyna00dc *self, GCancellable *cancellable, 
                 }
             }
 
-            /* Phase 2: Sensor is clear, collect finger contact */
-            if (rms > 15.0f) {
+            /* Phase 2: Sensor is clear, collect finger contact (hysteresis: touch > 35.0f) */
+            if (rms > 35.0f) {
                 if (!finger_detected) {
                     finger_detected = TRUE;
                     syna_report_status (self,

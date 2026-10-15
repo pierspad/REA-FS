@@ -234,7 +234,8 @@ def run_experiment(session_dir, experiment_id, cancel_on_eof=False, root=ROOT, e
     task = next((x for x in plan['experiments'] if x['id'] == experiment_id), None)
     if task is None: raise ValueError('experiment not found')
     writer = EventWriter(session_dir, plan, task)
-    argv = [arg.replace('{run_dir}', str(writer.run_dir.resolve())) for arg in task['argv']]
+    import getpass
+    argv = [arg.replace('{run_dir}', str(writer.run_dir.resolve())).replace('{user}', getpass.getuser()) for arg in task['argv']]
     messages = queue.Queue(maxsize=128)
     bridge_stop = threading.Event()
     process = None

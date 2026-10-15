@@ -138,6 +138,9 @@ impl State {
                 if event["result"] == "verify-match" {
                     self.status = "Impronta riconosciuta".into();
                 }
+                if event["result"] == "enroll-completed" {
+                    self.status = "Registrazione completata con successo".into();
+                }
                 self.detail = event["message"]
                     .as_str()
                     .or_else(|| event["reason"].as_str())
