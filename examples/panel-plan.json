@@ -17,7 +17,7 @@
       "timeout_seconds": 20,
       "adapter": "simulation",
       "category": "simulation",
-      "next_steps": "Premi «Copia messaggio per l’agente», torna alla chat e incollalo: l’agente leggerà questo tentativo prima di preparare il prossimo."
+      "next_steps": "I risultati sono salvati. Torna alla chat e chiedi all’agente di continuare: può trovare questa prova da latest-run.json senza copiare l’output."
     },
     {
       "id": "preflight",
@@ -34,7 +34,7 @@
       "timeout_seconds": 180,
       "adapter": "plain",
       "category": "diagnostics",
-      "next_steps": "Premi «Copia messaggio per l’agente», torna alla chat e incollalo: l’agente leggerà questo tentativo prima di preparare il prossimo."
+      "next_steps": "I risultati sono salvati. Torna alla chat e chiedi all’agente di continuare: può trovare questa prova da latest-run.json senza copiare l’output."
     },
     {
       "id": "offline-checks",
@@ -50,7 +50,7 @@
       "adapter": "plain",
       "category": "local_preparation",
       "raw_log": true,
-      "next_steps": "Premi «Copia messaggio per l’agente», torna alla chat e incollalo: l’agente leggerà questo tentativo prima di preparare il prossimo."
+      "next_steps": "I risultati sono salvati. Torna alla chat e chiedi all’agente di continuare: può trovare questa prova da latest-run.json senza copiare l’output."
     }
   ]
 }

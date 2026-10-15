@@ -8,6 +8,7 @@ import shutil
 import sys
 import time
 import uuid
+import tempfile
 
 MAX_PLAN = 256 * 1024
 MAX_LINE = 64 * 1024
@@ -60,7 +61,11 @@ class EventWriter:
     def __init__(self, session_dir: Path, plan: dict, experiment: dict):
         session_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
         self.run_id = str(uuid.uuid4())
-        self.run_dir = session_dir/self.run_id
+        self.session_dir = session_dir.resolve()
+        stamp = datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S.%fZ')
+        self.run_dir = self.session_dir/f'{stamp}-{self.run_id}'
+        self.started_event = None
+        self.event_count = 0
         self.run_dir.mkdir(mode=0o700)
         self.started = time.monotonic()
         self.base = {'schema_version': 1, 'plan_id': plan['plan_id'], 'revision': plan['revision'],
@@ -77,8 +82,28 @@ class EventWriter:
         line = json.dumps(event, ensure_ascii=False, allow_nan=False)
         if len(line.encode()) > MAX_LINE: raise ValueError('event exceeds size limit')
         self.stream.write(line+'\n'); self.stream.flush()
+        self.event_count += 1
+        if event_type == 'started': self.started_event = event
+        if event_type in ('started', 'completed', 'failed', 'timeout', 'stopped'):
+            summary = dict(self.base, started_event=self.started_event, last_event=event,
+                           event_count=self.event_count, events_path=str(self.run_dir/'events.jsonl'),
+                           plan_path=str(self.run_dir/'plan.json'), summary_path=str(self.run_dir/'summary.json'))
+            self._atomic_write(self.run_dir/'summary.json', json.dumps(summary, ensure_ascii=False, indent=2)+'\n')
+            self._atomic_write(self.session_dir/'latest-run.json', json.dumps(summary, ensure_ascii=False, indent=2)+'\n')
+            self._atomic_write(self.run_dir/'handoff.txt',
+                f"Leggi {self.run_dir}/plan.json, {self.run_dir}/events.jsonl e {self.run_dir}/summary.json. "
+                "Riprendi il checkpoint; distingui simulazione e hardware. Analizza l’esito prima di ripetere la prova.\n")
         print(line, flush=True)
         return event
+
+    @staticmethod
+    def _atomic_write(path, content):
+        descriptor, temporary = tempfile.mkstemp(prefix='.panel-', dir=path.parent)
+        try:
+            with os.fdopen(descriptor, 'w') as stream: stream.write(content)
+            os.replace(temporary, path)
+        finally:
+            if os.path.exists(temporary): os.unlink(temporary)
 
     def close(self): self.stream.close()
 

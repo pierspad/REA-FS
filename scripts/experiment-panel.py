@@ -28,11 +28,11 @@ def main():
         if args.action=='run':return run_experiment(args.session_dir.resolve(),args.experiment,args.cancel_on_eof,expected_fingerprint=args.expected_fingerprint)
         def emit(**fields):print(json.dumps(fields),flush=True)
         for stage in range(1,4):
-            emit(type='instruction',text='Simulazione: appoggia il dito (nessun sensore aperto)')
+            emit(type='instruction',text='Evento simulato: attesa del contatto. Non toccare il lettore.')
             emit(type='device_state',needed=True,present=False);time.sleep(1)
             emit(type='device_state',needed=False,present=True);time.sleep(1)
             emit(type='progress',completed=stage,total=3)
-            emit(type='instruction',text='Simulazione: rimuovi il dito')
+            emit(type='instruction',text='Evento simulato: rilascio. Non è una misura del sensore.')
             emit(type='device_state',needed=False,present=False);time.sleep(.5)
         return 0
     except (OSError,ValueError) as exc:

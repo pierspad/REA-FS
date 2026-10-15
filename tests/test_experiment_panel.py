@@ -37,6 +37,22 @@ class PanelModelTests(unittest.TestCase):
         for value in [123, 'x' * 2001]:
             self.plan['experiments'][0]['next_steps'] = value
             with self.assertRaises(ValueError): self.write()
+    def test_summary_and_latest_allow_agent_to_resume_without_clipboard(self):
+        plan=self.write()
+        with contextlib.redirect_stdout(io.StringIO()):
+            writer=EventWriter(self.root,plan,plan['experiments'][0])
+            writer.emit('started',adapter='simulation')
+            writer.emit('completed',exit_code=0)
+            writer.close()
+        summary=json.loads((writer.run_dir/'summary.json').read_text())
+        latest=json.loads((self.root/'latest-run.json').read_text())
+        self.assertEqual(summary['last_event']['type'],'completed')
+        self.assertEqual(summary['started_event']['adapter'],'simulation')
+        self.assertEqual(latest['run_id'],writer.run_id)
+        self.assertEqual(Path(latest['events_path']),writer.run_dir/'events.jsonl')
+        self.assertIn('events.jsonl',(writer.run_dir/'handoff.txt').read_text())
+        for path in [writer.run_dir/'summary.json', self.root/'latest-run.json', writer.run_dir/'handoff.txt']:
+            self.assertEqual(path.stat().st_mode&0o777,0o600)
     def test_partial_and_oversized_plan(self):
         for data in ['{',' '*262145]:
             self.path.write_text(data)
