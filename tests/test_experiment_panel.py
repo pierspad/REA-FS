@@ -101,3 +101,27 @@ class RunnerTests(PanelModelTests):
         pid=int(marker.read_text())
         stat=Path(f'/proc/{pid}/stat')
         self.assertTrue(not stat.exists() or stat.read_text().split()[2]=='Z')
+
+    def test_backend_interrupt_stops_child_group(self):
+        import signal
+        process=self.start('import time;time.sleep(30)')
+        first=json.loads(process.stdout.readline())
+        self.assertEqual(first['type'],'started')
+        process.send_signal(signal.SIGINT)
+        events=self.events(process)
+        self.assertEqual(events[-1]['type'],'stopped')
+
+    def test_changed_plan_fingerprint_prevents_launch(self):
+        marker=self.root/'must-not-exist'
+        process=self.start(f'from pathlib import Path;Path({str(marker)!r}).touch()',extra=('--expected-fingerprint','incorrect'))
+        out,err=process.communicate(input='',timeout=5)
+        self.assertNotEqual(process.returncode,0)
+        self.assertFalse(marker.exists())
+        self.assertEqual(out,'')
+        self.assertIn('plan changed',err)
+
+    def test_missing_cwd_and_large_revision_rejected_for_gui(self):
+        plan=copy.deepcopy(self.plan);del plan['experiments'][0]['cwd']
+        with self.assertRaises(ValueError):self.write(plan)
+        plan=copy.deepcopy(self.plan);plan['revision']=2**80
+        with self.assertRaises(ValueError):self.write(plan)

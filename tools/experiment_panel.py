@@ -25,7 +25,7 @@ def load_plan(path: Path, root: Path = ROOT) -> dict:
         raise ValueError('schema_version must be 1')
     for key in ('plan_id', 'title'):
         if not isinstance(plan.get(key), str) or not plan[key].strip(): raise ValueError(f'{key} must be nonempty')
-    if type(plan.get('revision')) is not int or plan['revision'] < 1: raise ValueError('revision must be a positive integer')
+    if type(plan.get('revision')) is not int or not 1 <= plan['revision'] <= 2**63-1: raise ValueError('revision must be a positive integer')
     tasks = plan.get('experiments')
     if not isinstance(tasks, list) or not 1 <= len(tasks) <= 32: raise ValueError('plan needs 1..32 experiments')
     ids = set()
@@ -39,7 +39,7 @@ def load_plan(path: Path, root: Path = ROOT) -> dict:
         if not isinstance(argv, list) or not argv or not all(isinstance(x, str) and x and '\0' not in x for x in argv):
             raise ValueError('argv must be a nonempty string array')
         if Path(argv[0]).name in ('sudo', 'su', 'pkexec'): raise ValueError('run privileged actions in your terminal')
-        cwd = task.get('cwd', '.')
+        cwd = task.get('cwd')
         if not isinstance(cwd, str) or Path(cwd).is_absolute(): raise ValueError('cwd must be relative to repository')
         resolved = (root/cwd).resolve()
         if not resolved.is_relative_to(root) or not resolved.is_dir(): raise ValueError('cwd escapes repository or does not exist')
@@ -82,6 +82,7 @@ class EventWriter:
 
 # The runner never infers device events from arbitrary command output.
 import queue
+import select
 import re
 import signal
 import subprocess
@@ -103,15 +104,29 @@ def _reader(stream, messages, channel):
         messages.put(('eof', channel, b''))
 
 
-def _controls(messages, cancel_on_eof):
+def _controls(messages, cancel_on_eof, stop):
+    # Read the descriptor directly: a daemon thread must not hold Python stdin's
+    # buffered-reader lock when a terminal run finishes without more input.
+    buffer = bytearray()
     try:
-        for line in sys.stdin:
-            if len(line) > 4096: continue
-            try: value = json.loads(line)
-            except ValueError: continue
-            if isinstance(value, dict) and value.get('type') in ('cancel', 'confirm'):
-                messages.put(('control', value['type'], b''))
-    finally:
+        descriptor = sys.stdin.fileno()
+        while not stop.is_set():
+            ready, _, _ = select.select([descriptor], [], [], .1)
+            if not ready: continue
+            chunk = os.read(descriptor, 4096)
+            if not chunk:
+                if cancel_on_eof: messages.put(('control', 'cancel', b''))
+                return
+            buffer.extend(chunk)
+            while b'\n' in buffer:
+                line, _, tail = buffer.partition(b'\n'); buffer = bytearray(tail)
+                if len(line) > 4096: continue
+                try: value = json.loads(line)
+                except (ValueError, UnicodeError): continue
+                if isinstance(value, dict) and value.get('type') in ('cancel', 'confirm'):
+                    messages.put(('control', value['type'], b''))
+            if len(buffer) > 4096: buffer.clear()
+    except (OSError, ValueError):
         if cancel_on_eof: messages.put(('control', 'cancel', b''))
 
 
@@ -196,16 +211,17 @@ def run_experiment(session_dir, experiment_id, cancel_on_eof=False, root=ROOT, e
         process = subprocess.Popen(argv, cwd=(root/task.get('cwd', '.')).resolve(),
             stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
             start_new_session=True)
-        writer.emit('started', argv=argv, cwd=str((root/task.get('cwd', '.')).resolve()),
+        writer.emit('started', process_group=process.pid, argv=argv, cwd=str((root/task.get('cwd', '.')).resolve()),
                     timeout_seconds=task['timeout_seconds'], adapter=task['adapter'],
                     instructions=task['instructions'], run_directory=str(writer.run_dir.resolve()))
         for channel, stream in [('stdout', process.stdout), ('stderr', process.stderr)]:
             threading.Thread(target=_reader, args=(stream, messages, channel), daemon=True).start()
-        threading.Thread(target=_controls, args=(messages, cancel_on_eof), daemon=True).start()
+        threading.Thread(target=_controls, args=(messages, cancel_on_eof, bridge_stop), daemon=True).start()
         if task.get('raw_log'):
             fd = os.open(writer.run_dir/'output.log', os.O_WRONLY|os.O_CREAT|os.O_EXCL, 0o600)
             raw = os.fdopen(fd, 'wb')
         bridge_started = False
+        selected_device_path = None
         deadline = time.monotonic()+task['timeout_seconds']
         reason = None
         raw_size = 0
@@ -237,11 +253,13 @@ def run_experiment(session_dir, experiment_id, cancel_on_eof=False, root=ROOT, e
                     _simulation_event(writer, payload)
                 if channel == 'stdout' and task['adapter'] == 'fprintd':
                     text = payload.decode('utf-8','replace').strip()
-                    if not bridge_started:
-                        device_path = re.fullmatch(r'Using device (/net/reactivated/Fprint/Device/\d+)', text)
-                        if device_path:
-                            threading.Thread(target=_fprint_state,args=(messages,bridge_stop,device_path[1]),daemon=True).start()
-                            bridge_started = True
+                    device_path = re.fullmatch(r'Using device (/net/reactivated/Fprint/Device/\d+)', text)
+                    if device_path: selected_device_path = device_path[1]
+                    # fprintd prints its selected path before open/calibration.
+                    # Do not expose stale finger-needed flags from that phase.
+                    if not bridge_started and selected_device_path and (text == 'Verify started!' or text.startswith('Enrolling ')):
+                        threading.Thread(target=_fprint_state,args=(messages,bridge_stop,selected_device_path),daemon=True).start()
+                        bridge_started = True
                     if text == 'Enroll result: enroll-stage-passed':
                         completed += 1
                         writer.emit('progress','device',completed=completed,total=total)
@@ -268,6 +286,10 @@ def run_experiment(session_dir, experiment_id, cancel_on_eof=False, root=ROOT, e
             writer.emit('completed' if exit_code == 0 else 'failed', exit_code=exit_code,
                         result=device_result, cleanup_not_confirmed=forced)
         return 0 if not reason and exit_code == 0 else 1
+    except KeyboardInterrupt:
+        if process and _group_exists(process.pid): _stop_group(process)
+        writer.emit('stopped', reason='backend_interrupt', cleanup_not_confirmed=True)
+        return 1
     except (OSError, ValueError) as exc:
         if process and _group_exists(process.pid): _stop_group(process)
         writer.emit('failed', reason='backend_error', message=str(exc), cleanup_not_confirmed=True)

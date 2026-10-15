@@ -80,3 +80,5 @@ __pycache__/
 *.pem
 /drivers/syna_tod/credentials/
 /drivers/**/build/
+
+/panel/target/
