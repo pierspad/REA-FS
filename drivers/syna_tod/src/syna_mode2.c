@@ -123,3 +123,23 @@ int syna_decode_frame_mode2(const uint8_t *frame,
 
     return 0;
 }
+
+int syna_decode_frame_unclipped(const uint8_t *frame, float *out)
+{
+    if (!frame || !out) return -1;
+    int ret = syna_validate_frame(frame, NULL);
+    if (ret) return ret;
+    for (size_t pair = 0; pair < SYNA_OUTPUT_ROWS; pair++) {
+        const uint8_t *a = frame + pair * 2 * SYNA_ROW_BYTES + SYNA_HEADER_BYTES;
+        const uint8_t *b = a + SYNA_ROW_BYTES;
+        for (size_t block = 0; block < SYNA_SAMPLE_BYTES; block += 16) {
+            for (int k = 0; k < 16; k++) {
+                int32_t total = 0;
+                for (int j = 0; j < 16; j++)
+                    total += KRON_M[k][j] * (((int)a[block+j] + b[block+j]) / 2);
+                out[pair * SYNA_SAMPLE_BYTES + block + k] = (float)((total >> 1) - 128);
+            }
+        }
+    }
+    return 0;
+}

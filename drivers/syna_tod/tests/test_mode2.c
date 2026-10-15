@@ -103,9 +103,28 @@ static void test_frame_validation(void)
     printf("  [PASS] test_frame_validation & test_decode_frame_mode2\n");
 }
 
+static void test_unclipped_frame(void)
+{
+    uint8_t frame[SYNA_FRAME_BYTES];
+    for (int r = 0; r < SYNA_ROWS_PER_FRAME; r++) {
+        uint8_t *row = frame + r * SYNA_ROW_BYTES;
+        const uint8_t header[] = {1, 254, (uint8_t)(r + 1), 42, 240, 247, 1, 0};
+        memcpy(row, header, 8);
+        memset(row + 8, 255, SYNA_SAMPLE_BYTES);
+    }
+    float out[SYNA_OUTPUT_ROWS * SYNA_SAMPLE_BYTES];
+    /* Each transform row sums to four: 4*255/2-128 = 382. */
+    assert(syna_decode_frame_unclipped(frame, out) == 0);
+    for (size_t i = 0; i < SYNA_OUTPUT_ROWS * SYNA_SAMPLE_BYTES; i++)
+        assert(out[i] == 382.0f);
+    frame[0] = 0;
+    assert(syna_decode_frame_unclipped(frame, out) < 0);
+}
+
 int main(void)
 {
     printf("Running syna_mode2 unit tests...\n");
+    test_unclipped_frame();
     test_basis_vector_0();
     test_constant_levels();
     test_baseline_offset();

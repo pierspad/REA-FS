@@ -51,3 +51,6 @@ int syna_decode_frame_mode2(const uint8_t *frame,
 #ifdef __cplusplus
 }
 #endif
+
+/* Decode without saturation. Subtract a measured float baseline afterwards. */
+int syna_decode_frame_unclipped(const uint8_t *frame, float *out);
