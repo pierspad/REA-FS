@@ -1,0 +1,28 @@
+{
+  "version": 1,
+  "setup": {
+    "state": "unconfigured",
+    "source": "repository_defaults"
+  },
+  "authorization": {
+    "mode": "ask",
+    "scope": {
+      "project": null,
+      "sensor": null
+    },
+    "allowed_actions": ["read_only_analysis", "local_preparation"],
+    "excluded_actions": ["publish", "login_configuration", "unrelated_data_changes"]
+  },
+  "delegation": {
+    "mode": "off",
+    "objective": "total_tokens",
+    "allowed_models": [],
+    "strict_condition": true,
+    "fallback": "main_agent"
+  },
+  "data": {
+    "session_storage": "private_local",
+    "biometric_capture": "ask",
+    "external_transfer": false
+  }
+}
