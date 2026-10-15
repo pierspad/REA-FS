@@ -61,3 +61,15 @@ La suite della build locale ha riportato 5 test riusciti, 1 fallito e 34 saltati
 Il flusso registra due contatti separati, con ritorno alla baseline fra i due. L’avvio precedente era stato rifiutato con status `0x0450` dopo pulizia e inizializzazione accettate; chiusura TLS confermata. Un reset USB seguito dallo stesso esperimento ha consentito la cattura. Il significato dello status e la causa precisa restano da isolare: due cicli di sola inizializzazione riusciti non provano che sia ripetibile l’intera acquisizione.
 
 Dieci finestre temporali prefissate dei due appoggi producono da 6 a 11 minutiae. Il controllo offline che confronta un’immagine con sé stessa passa la soglia 40; due finestre diverse dello stesso appoggio ottengono 23/40, e una coppia di acquisizioni distinte richieste con lo stesso dito ottiene 0/40. Questi confronti non passano. La pipeline corrente non dimostra quindi riconoscimento affidabile, anche quando il numero di minutiae supera il minimo computabile. I template dell’esperimento restano solo in memoria e non vengono serializzati.
+
+## Sovrapposizione fra appoggi indipendenti (fase dopo l’handover, commit base `1eabf01`)
+
+Verifica offline, senza nuove catture, con `tools/placement_overlap.py` (solo NumPy, test sintetici). Somme mode 2 prima del clipping, mediana della finestra di contatto meno mediana dei primi 100 frame, filtro passa-banda 0,08–0,30 cicli/pixel, rotazioni −30…30°, sovrapposizione minima 70%.
+
+- Periodo delle creste stimato ~6,1–6,5 pixel, isotropo. Con una distanza fra creste tipica di circa 0,45–0,5 mm questo è più coerente con ~333 dpi (valore copiato dal codice OEM) che con 500 dpi. Ipotesi, non misura metrologica.
+- Appoggi indipendenti dello stesso dito dichiarato: trial5 contatto1↔contatto2 correlazione 0,94 (traslazione 12,8 px, 0°); trial5↔trial3 0,65 e 0,59 (4°). Le tre trasformazioni sono transitivamente coerenti: (12,8)+(−7,13)=(5,21).
+- Controlli con la stessa sovrapposizione: capovolgimenti 0,06–0,18, rumore con stesso spettro 0,28. Correlazione a spostamento zero fra i contatti −0,03: il risultato non è dominato da pattern fisso del sensore.
+
+Conclusione provvisoria: la catena decodifica mode 2 + sottrazione baseline produce struttura di cresta ripetibile fra appoggi reali. Il limite osservato con NBIS/Bozorth è compatibile con l’area ridotta (144×56, circa 11×4 mm a 333 dpi) più che con una decodifica errata. Un singolo dito, nessun impostore e nessuna soglia calibrata: **non è una prova di riconoscimento** e non stima FAR/FRR.
+
+Prossimo passo suggerito: valutare un matcher per sensori piccoli (feature locali + verifica geometrica, enrollment multi-appoggio) invece di abbassare soglie NBIS; poi raccogliere più appoggi e almeno un dito diverso come controllo negativo, con consenso.

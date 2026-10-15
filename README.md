@@ -115,6 +115,8 @@ Le tracce possono contenere dati biometrici. Concorda con l’agente cosa raccog
 
 `tools/raw_frames.py` legge il formato RAW verificato sul sensore USB 06cb:00dc di questa indagine: righe di 152 byte, 112 righe per frame, coppie adiacenti → 144×56 campioni. Valida intestazioni e contatori; non acquisisce dati dal dispositivo, non applica calibrazione o sottrazione della baseline e non è un driver. Vedi [risultati e limiti](docs/research-06cb-00dc.md).
 
+`tools/placement_overlap.py` stima la sovrapposizione rigida fra due immagini decodificate (solo NumPy) come diagnostico indipendente dalle minutiae; non è una decisione di riconoscimento. Il registro dei passaggi fra agenti è in [docs/agent-handover.md](docs/agent-handover.md).
+
 ```sh
 python tools/raw_frames.py --input sessions/LA_TUA_SESSIONE/capture.bin \
     --output sessions/LA_TUA_SESSIONE/frame.pgm --frame 0 --encoder-mode 2 --allow-partial-tail
