@@ -54,14 +54,72 @@ def load_plan(path: Path, root: Path = ROOT) -> dict:
         if task['adapter'] == 'fprintd' and Path(argv[0]).name not in ('fprintd-enroll', 'fprintd-verify'):
             raise ValueError('fprintd adapter requires fprintd-enroll or fprintd-verify')
         if type(task.get('raw_log', False)) is not bool: raise ValueError('raw_log must be boolean')
+        params = task.get('parameters', [])
+        if not isinstance(params, list) or any(p not in PARAMETERS for p in params):
+            raise ValueError('parameters may only contain "finger"')
+        if any('{finger}' in arg for arg in argv) != ('finger' in params):
+            raise ValueError('{finger} placeholder and parameters ["finger"] must be declared together')
+    return plan
+
+
+PARAMETERS = ('finger',)
+FINGERS = tuple(f'{side}-{name}' for side in ('left', 'right')
+                for name in ('thumb', 'index-finger', 'middle-finger', 'ring-finger', 'little-finger'))
+NOTE_LIMIT = 500
+
+
+def sanitize_note(text) -> str:
+    if not isinstance(text, str): raise ValueError('note must be text')
+    clean = ' '.join(''.join(c if c.isprintable() else ' ' for c in text).split())[:NOTE_LIMIT]
+    if not clean: raise ValueError('note is empty')
+    return clean
+
+
+def _private_atomic_write(path: Path, content: str):
+    descriptor, temporary = tempfile.mkstemp(prefix='.panel-', dir=path.parent)
+    try:
+        with os.fdopen(descriptor, 'w') as stream: stream.write(content)
+        os.chmod(temporary, 0o600)
+        os.replace(temporary, path)
+    finally:
+        if os.path.exists(temporary): os.unlink(temporary)
+
+
+def _private_append(path: Path, line: str):
+    fd = os.open(path, os.O_WRONLY|os.O_CREAT|os.O_APPEND, 0o600)
+    with os.fdopen(fd, 'a') as stream: stream.write(line+'\n')
+    os.chmod(path, 0o600)
+
+
+def write_panel_status(session_dir: Path, plan_path: Path, plan=None, error=None):
+    """Record the last validation outcome so the agent can check what the GUI loaded."""
+    session_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+    status = {'schema_version': 1, 'updated_at': datetime.now(timezone.utc).isoformat(),
+              'plan_path': str(plan_path), 'valid': plan is not None,
+              'plan_id': plan['plan_id'] if plan else None, 'revision': plan['revision'] if plan else None,
+              'experiment_ids': [x['id'] for x in plan['experiments']] if plan else [],
+              'error': None if plan else str(error)[:2000]}
+    _private_atomic_write(session_dir/'panel-status.json', json.dumps(status, ensure_ascii=False, indent=2)+'\n')
+    return status
+
+
+def validate_session(session_dir: Path, root: Path = ROOT) -> dict:
+    path = session_dir/'plan.json'
+    try: plan = load_plan(path, root)
+    except (OSError, ValueError) as exc:
+        write_panel_status(session_dir, path, error=exc); raise
+    write_panel_status(session_dir, path, plan)
     return plan
 
 
 class EventWriter:
-    def __init__(self, session_dir: Path, plan: dict, experiment: dict):
+    def __init__(self, session_dir: Path, plan: dict, experiment: dict, parameters=None):
         session_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
         self.run_id = str(uuid.uuid4())
         self.session_dir = session_dir.resolve()
+        self.parameters = dict(parameters or {})
+        self.user_notes = []
+        self.last_event = None
         stamp = datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S.%fZ')
         self.run_dir = self.session_dir/f'{stamp}-{self.run_id}'
         self.started_event = None
@@ -84,28 +142,64 @@ class EventWriter:
         self.stream.write(line+'\n'); self.stream.flush()
         self.event_count += 1
         if event_type == 'started': self.started_event = event
-        if event_type in ('started', 'completed', 'failed', 'timeout', 'stopped'):
-            summary = dict(self.base, started_event=self.started_event, last_event=event,
-                           event_count=self.event_count, events_path=str(self.run_dir/'events.jsonl'),
-                           plan_path=str(self.run_dir/'plan.json'), summary_path=str(self.run_dir/'summary.json'))
-            self._atomic_write(self.run_dir/'summary.json', json.dumps(summary, ensure_ascii=False, indent=2)+'\n')
-            self._atomic_write(self.session_dir/'latest-run.json', json.dumps(summary, ensure_ascii=False, indent=2)+'\n')
-            self._atomic_write(self.run_dir/'handoff.txt',
-                f"Leggi {self.run_dir}/plan.json, {self.run_dir}/events.jsonl e {self.run_dir}/summary.json. "
-                "Riprendi il checkpoint; distingui simulazione e hardware. Analizza l’esito prima di ripetere la prova.\n")
+        if event_type == 'user_note': self.user_notes.append({'timestamp': event['timestamp'], 'text': event['text']})
+        if event_type in TERMINAL or event_type in ('started', 'user_note'):
+            self._write_summary(event if event_type != 'user_note' else (self.last_event or event))
+        if event_type in TERMINAL: self._append_index(event)
         print(line, flush=True)
         return event
 
+    def _write_summary(self, last_event):
+        self.last_event = last_event
+        summary = dict(self.base, started_event=self.started_event, last_event=last_event,
+                       event_count=self.event_count, user_notes=self.user_notes,
+                       events_path=str(self.run_dir/'events.jsonl'),
+                       plan_path=str(self.run_dir/'plan.json'), summary_path=str(self.run_dir/'summary.json'))
+        content = json.dumps(summary, ensure_ascii=False, indent=2)+'\n'
+        self._atomic_write(self.run_dir/'summary.json', content)
+        self._atomic_write(self.session_dir/'latest-run.json', content)
+        self._atomic_write(self.run_dir/'handoff.txt',
+            f"Leggi {self.session_dir}/runs-index.jsonl, poi {self.run_dir}/plan.json, {self.run_dir}/events.jsonl e {self.run_dir}/summary.json. "
+            "Riprendi il checkpoint; distingui simulazione e hardware. Analizza l’esito prima di ripetere la prova.\n")
+
+    def _append_index(self, event):
+        started = self.started_event or {}
+        entry = dict(self.base, adapter=started.get('adapter'), started_at=started.get('timestamp'),
+                     ended_at=event['timestamp'], terminal_type=event['type'], exit_code=event.get('exit_code'),
+                     result=event.get('result'), parameters=self.parameters,
+                     run_dir=str(self.run_dir), summary_path=str(self.run_dir/'summary.json'))
+        _private_append(self.session_dir/'runs-index.jsonl', json.dumps(entry, ensure_ascii=False))
+
     @staticmethod
     def _atomic_write(path, content):
-        descriptor, temporary = tempfile.mkstemp(prefix='.panel-', dir=path.parent)
-        try:
-            with os.fdopen(descriptor, 'w') as stream: stream.write(content)
-            os.replace(temporary, path)
-        finally:
-            if os.path.exists(temporary): os.unlink(temporary)
+        _private_atomic_write(path, content)
 
     def close(self): self.stream.close()
+
+
+TERMINAL = ('completed', 'failed', 'timeout', 'stopped')
+
+
+def append_note(session_dir: Path, text: str) -> dict:
+    """Attach a user note to the latest run after it ended (GUI note button)."""
+    session_dir = session_dir.resolve()
+    text = sanitize_note(text)
+    latest = json.loads((session_dir/'latest-run.json').read_text())
+    run_dir = Path(latest['summary_path']).resolve().parent
+    if not run_dir.is_relative_to(session_dir) or not run_dir.is_dir(): raise ValueError('latest run outside session')
+    summary_path = run_dir/'summary.json'
+    summary = json.loads(summary_path.read_text())
+    if summary.get('run_id') != latest.get('run_id'): raise ValueError('latest run mismatch')
+    event = {k: summary[k] for k in ('schema_version', 'plan_id', 'revision', 'experiment_id', 'run_id')}
+    event.update(type='user_note', origin='user', text=text, after_end=True,
+                 timestamp=datetime.now(timezone.utc).isoformat())
+    _private_append(run_dir/'events.jsonl', json.dumps(event, ensure_ascii=False))
+    summary.setdefault('user_notes', []).append({'timestamp': event['timestamp'], 'text': text})
+    summary['event_count'] = summary.get('event_count', 0)+1
+    content = json.dumps(summary, ensure_ascii=False, indent=2)+'\n'
+    _private_atomic_write(summary_path, content)
+    _private_atomic_write(session_dir/'latest-run.json', content)
+    return event
 
 # The runner never infers device events from arbitrary command output.
 import queue
@@ -152,6 +246,9 @@ def _controls(messages, cancel_on_eof, stop):
                 except (ValueError, UnicodeError): continue
                 if isinstance(value, dict) and value.get('type') in ('cancel', 'confirm'):
                     messages.put(('control', value['type'], b''))
+                elif isinstance(value, dict) and value.get('type') == 'note':
+                    try: messages.put(('control', 'note', sanitize_note(value.get('text'))))
+                    except ValueError: pass
             if len(buffer) > 4096: buffer.clear()
     except (OSError, ValueError):
         if cancel_on_eof: messages.put(('control', 'cancel', b''))
@@ -227,15 +324,25 @@ def plan_fingerprint(plan):
     return hashlib.sha256(json.dumps(plan, sort_keys=True, separators=(',', ':'), ensure_ascii=False).encode()).hexdigest()
 
 
-def run_experiment(session_dir, experiment_id, cancel_on_eof=False, root=ROOT, expected_fingerprint=None):
+RETRY_CODES = ('enroll-retry-scan', 'enroll-swipe-too-short', 'enroll-finger-not-centered', 'enroll-remove-and-retry',
+               'verify-retry-scan', 'verify-swipe-too-short', 'verify-finger-not-centered', 'verify-remove-and-retry')
+
+
+def run_experiment(session_dir, experiment_id, cancel_on_eof=False, root=ROOT, expected_fingerprint=None, finger=None):
     plan = load_plan(session_dir/'plan.json', root)
     if expected_fingerprint and plan_fingerprint(plan) != expected_fingerprint:
         raise ValueError('plan changed after preview; reload and review before running')
     task = next((x for x in plan['experiments'] if x['id'] == experiment_id), None)
     if task is None: raise ValueError('experiment not found')
-    writer = EventWriter(session_dir, plan, task)
+    parameters = {}
+    if 'finger' in task.get('parameters', []):
+        if finger not in FINGERS: raise ValueError('experiment requires --finger with an fprintd finger name')
+        parameters['finger'] = finger
+    elif finger is not None: raise ValueError('experiment does not accept --finger')
+    writer = EventWriter(session_dir, plan, task, parameters)
     import getpass
-    argv = [arg.replace('{run_dir}', str(writer.run_dir.resolve())).replace('{user}', getpass.getuser()) for arg in task['argv']]
+    argv = [arg.replace('{run_dir}', str(writer.run_dir.resolve())).replace('{user}', getpass.getuser())
+               .replace('{finger}', parameters.get('finger', '{finger}')) for arg in task['argv']]
     messages = queue.Queue(maxsize=128)
     bridge_stop = threading.Event()
     process = None
@@ -249,7 +356,7 @@ def run_experiment(session_dir, experiment_id, cancel_on_eof=False, root=ROOT, e
         writer.emit('started', process_group=process.pid, argv=argv, cwd=str((root/task.get('cwd', '.')).resolve()),
                     timeout_seconds=task['timeout_seconds'], adapter=task['adapter'],
                     instructions=task['instructions'], next_steps=task.get('next_steps', ''),
-                    run_directory=str(writer.run_dir.resolve()))
+                    parameters=parameters, run_directory=str(writer.run_dir.resolve()))
         for channel, stream in [('stdout', process.stdout), ('stderr', process.stderr)]:
             threading.Thread(target=_reader, args=(stream, messages, channel), daemon=True).start()
         threading.Thread(target=_controls, args=(messages, cancel_on_eof, bridge_stop), daemon=True).start()
@@ -266,13 +373,16 @@ def run_experiment(session_dir, experiment_id, cancel_on_eof=False, root=ROOT, e
         completed = 0
         total = 0
         device_result = None
+        listing = Path(argv[0]).name == 'fprintd-list' and task['adapter'] == 'plain'
+        enrolled = []
         while True:
             if time.monotonic() >= deadline: reason = 'timeout'; break
             try: kind, channel, payload = messages.get(timeout=.02)
             except queue.Empty: kind = None
             if kind == 'control':
                 if channel == 'cancel': reason = 'cancel'; break
-                writer.emit('user_confirmation', 'user', confirmed=True)
+                if channel == 'note': writer.emit('user_note', 'user', text=payload)
+                else: writer.emit('user_confirmation', 'user', confirmed=True)
             elif kind == 'overflow': reason = 'output_limit'; break
             elif kind == 'eof': streams -= 1
             elif kind == 'limitation':
@@ -289,6 +399,9 @@ def run_experiment(session_dir, experiment_id, cancel_on_eof=False, root=ROOT, e
                     raw.write(payload); raw.flush()
                 if channel == 'stdout' and task['adapter'] == 'simulation':
                     _simulation_event(writer, payload)
+                if channel == 'stdout' and listing:
+                    found = re.fullmatch(r'\s*-\s*#\d+:\s*([a-z-]+)\s*', payload.decode('utf-8', 'replace'))
+                    if found and found[1] in FINGERS and found[1] not in enrolled: enrolled.append(found[1])
                 if channel == 'stdout' and task['adapter'] == 'fprintd':
                     text = payload.decode('utf-8','replace').strip()
                     device_path = re.fullmatch(r'Using device (/net/reactivated/Fprint/Device/\d+)', text)
@@ -298,15 +411,25 @@ def run_experiment(session_dir, experiment_id, cancel_on_eof=False, root=ROOT, e
                     if not bridge_started and selected_device_path and (text == 'Verify started!' or text.startswith('Enrolling ')):
                         threading.Thread(target=_fprint_state,args=(messages,bridge_stop,selected_device_path),daemon=True).start()
                         bridge_started = True
+                        # Marks the end of claim/open/calibration: lets the GUI split latency.
+                        writer.emit('operation_started', 'device')
+                    selected = re.fullmatch(r'Verifying: ([a-z-]+)', text)
+                    if selected: writer.emit('verify_finger', 'device', finger=selected[1])
                     if text == 'Enroll result: enroll-stage-passed':
                         completed += 1
                         writer.emit('progress','device',completed=completed,total=total)
                     elif text == 'Enroll result: enroll-completed':
                         writer.emit('progress','device',completed=total or completed+1,total=total or completed+1)
                         device_result = 'enroll-completed'
+                    elif text.startswith('Enroll result: '):
+                        code = text.split(': ',1)[1].split()[0]
+                        if code in RETRY_CODES: writer.emit('retry_hint', 'device', code=code)
                     elif text.startswith('Verify result: '):
                         status = text.split(': ',1)[1].split()[0]
-                        if status in ('verify-match','verify-no-match'): device_result = status
+                        if status in ('verify-match','verify-no-match'):
+                            device_result = status
+                            writer.emit('verify_result', 'device', result=status)
+                        elif status in RETRY_CODES: writer.emit('retry_hint', 'device', code=status)
             if process.poll() is not None:
                 if exited_at is None: exited_at = time.monotonic()
                 if streams <= 0 or time.monotonic()-exited_at > .5: break
@@ -321,6 +444,7 @@ def run_experiment(session_dir, experiment_id, cancel_on_eof=False, root=ROOT, e
                         cleanup_not_confirmed=True, forced=forced)
         else:
             exit_code = process.returncode
+            if listing and exit_code == 0: writer.emit('enrolled_fingers', fingers=enrolled)
             writer.emit('completed' if exit_code == 0 else 'failed', exit_code=exit_code,
                         result=device_result, cleanup_not_confirmed=forced)
         return 0 if not reason and exit_code == 0 else 1

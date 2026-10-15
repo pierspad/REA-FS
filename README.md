@@ -6,7 +6,13 @@ Reverse engineering assistito da agenti per studiare lettori di impronte non sup
 
 Clona questa repository, aprila con un agente che possa leggere file ed eseguire comandi e incolla:
 
-> Leggi AGENTS.md, README.md, docs/repositories.md, docs/preferences.md e docs/agent-workflow.md. Leggi le preferenze locali se presenti e riprendi il checkpoint pertinente. Il mio obiettivo è studiare il lettore di impronte di questo computer e, se tecnicamente possibile, renderlo utilizzabile su Linux. Identifica prima hardware, sistema e supporto esistente; non assumere che il mio sensore sia quello dell’esempio Synaptics. Chiedimi una sola volta le preferenze mancanti, salva le risposte localmente e procedi senza riconferme nelle categorie già autorizzate. Scegli la modalità interattiva o una finestra temporale annunciata secondo le capacità reali del tuo client. Guidami con un’azione fisica alla volta, solo quando il test è in ascolto, indicando scadenza e segnale di successo. Non interpretare il silenzio come conferma. Confronta fonti, verifica ipotesi e prepara strumenti ripetibili invece di accumulare comandi ad hoc. Salva fatti, ipotesi, errori, revisioni e prossimo passo. Proteggi chiavi e dati biometrici; niente pubblicazione automatica. Non promettere un driver né dichiarare riuscite prove non eseguite. Se il lavoro è bloccato, spiega l’evidenza e il requisito concreto per continuare.
+> Leggi nell'ordine AGENTS.md, README.md, docs/preferences.md, docs/agent-workflow.md, docs/experiment-panel.md e docs/repositories.md. Leggi `.rea-fs.local/preferences.json` se presente e riprendi il checkpoint pertinente in `sessions/` (o creane uno nuovo con `python3 scripts/rea-fs.py init-session`). Il mio obiettivo è studiare il lettore di impronte di questo computer e, se tecnicamente possibile, renderlo utilizzabile su Linux.
+> Segui rigorosamente la Macchina a Stati in `AGENTS.md` un passo alla volta:
+> 1. Identifica prima hardware, sistema e supporto esistente; non assumere che il mio sensore sia il Synaptics 06cb:00dc dell'esempio.
+> 2. Se mancano le preferenze in `.rea-fs.local/preferences.json`, chiedimele una sola volta, salvale localmente e procedi senza riconferme nelle categorie già autorizzate.
+> 3. Esegui direttamente nel terminale solo i comandi passivi di lettura, preflight, build e test offline.
+> 4. Per QUALSIASI esperimento che richieda una mia azione fisica (appoggiare/rimuovere il dito, verificare fprintd, acquisire frame RAW) o supervisione interattiva, usa il Pannello GUI: scrivi e valida atomicamente `.rea-fs.local/panel/plan.json`, indicami il comando per aprire il pannello (`python3 scripts/open-panel.py`) e il titolo dell'esperimento da premere, poi FERMATI e attendi un mio messaggio in chat.
+> Proteggi chiavi e dati biometrici; niente pubblicazione automatica; non inventare risultati hardware e non dichiarare riuscite prove non eseguite.
 
 ```sh
 git clone https://github.com/pierspad/REA-FS.git

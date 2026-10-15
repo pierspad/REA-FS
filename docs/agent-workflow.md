@@ -24,7 +24,10 @@
 - [ ] Per ogni conclusione registra evidenza, confidenza e alternative. Non dedurre un protocollo dal solo nome commerciale.
 - [ ] Scegli il prossimo esperimento con domanda, risultato atteso, rischi e criterio di arresto; evita prove già concluse salvo nuove evidenze.
 
-## Controlli emersi dalla prima indagine
+## Controlli emersi dalla prima indagine (Condizionali: applicare solo se pertinenti all'architettura del sensore osservato)
+
+> [!NOTE]
+> Questi controlli derivano dall'indagine specifica sul sensore Synaptics 06cb:00dc (Acer Aspire A514-54). Non cercare necessariamente RomInfo, handshake TLS o frame 152×112 su sensori di altri produttori (es. Goodix, Elan, FocalTech), la cui architettura e protocollo possono essere completamente differenti.
 
 - [ ] Distinguere libfprint upstream, fork TOD, modulo vendor e servizio fprintd: un pacchetto installato può non includere l’ID del sensore.
 - [ ] Controllare la tabella dispositivi effettiva e il contesto delle liste: un VID/PID presente nel codice può essere elencato tra i dispositivi non supportati.
@@ -46,7 +49,10 @@
 - [ ] Valutare separatamente esito della prova ed esito della chiusura: un exit code zero o una risposta di due byte non confermano la chiusura. Conservare lo status esatto; una query successiva riuscita prova la disponibilità di quel comando, non l’azzeramento del canale sicuro.
 - [ ] Rivedere le opzioni di log dei tool crittografici prima di eseguirli: alcuni riferimenti stampano chiavi private anche a livello INFO. Salvare credenziali fuori dai log e dai file tracciati, con permessi restrittivi.
 
-## Controlli emersi dalle acquisizioni RAW
+## Controlli emersi dalle acquisizioni RAW (Condizionali: applicare solo se pertinenti all'architettura del sensore osservato)
+
+> [!NOTE]
+> Applicare solo a sensori che trasmettono matrici RAW di campioni al computer host. Sensori «match-on-chip» o «match-on-host» con crittografia proprietaria non espongono necessariamente questo flusso o questo formato di frame.
 
 - [ ] Sincronizzare con un «pronto» prima della finestra di contatto; distinguere prompt inviato, evento misurato e azione confermata. Una prova senza contatto è una baseline utile.
 - [ ] Ricavare stride, intestazioni e contatori dal flusso: la larghezza nominale del programma può differire dalla riga effettivamente trasmessa.
@@ -103,15 +109,13 @@ Prossimo passo riproducibile:
 
 Mantieni i dati sensibili nelle sole directory locali ignorate. Prima di tracciarle altrove, verifica la policy e il consenso per ogni acquisizione.
 
-## Modalità del client: interattiva o a finestra
+## Modalità di esecuzione: Pannello GUI vs Terminale
 
-Scegli in base agli strumenti effettivamente disponibili, non al nome del modello.
+In conformità con `AGENTS.md`:
 
-**Interattiva:** il processo resta attivo fra le chiamate dell’agente. Prima verifica nei suoi eventi che il sensore sia pronto; poi invia la singola azione fisica. Usa scadenze reali abbastanza lunghe per i tempi della chat (per il prototipo attuale: 60 s per appoggio), non un numero di frame convertito in secondi assumendo una frequenza costante. Un cambiamento di flag software non dimostra da solo che il dito sia stato fisicamente rimosso.
-
-**A finestra:** prima dell’esecuzione presenta l’intera sequenza con segnali locali del tool (terminali visibili o suoni se disponibili) e una durata totale delimitata. L’utente deve poter riconoscere localmente inizio, rimozione e fine: non chiedergli di attendere messaggi che il client non può inviare durante il comando. Per acquisizioni temporali il programma registra timestamp e segnale per tutta la finestra, con limite di dimensione; dopo il ritorno l’agente identifica i contatti osservati. Una sequenza preparata non prova che sia stata eseguita. Se non sono visibili segnali locali né conferme tempestive, prepara un comando che l’utente possa avviare nel proprio terminale e raccogli il suo esito.
-
-Entrambe le modalità richiedono controllo dei prerequisiti, consenso già definito, dati privati e cleanup. Non riusare comandi Synaptics su dispositivi nuovi. Non avviare una registrazione mentre il sensore è usato da un altro processo. Dopo un errore salva l’esito e formula una nuova domanda sperimentale prima di riprovare.
+- **Pannello GUI (modalità predefinita e obbligatoria):** quando un display grafico è disponibile (`DISPLAY` o `WAYLAND_DISPLAY`), ogni operazione che richiede contatto fisico con il sensore, attesa dell'utente, cattura biometrica, registrazione/verifica `fprintd` o supervisione interattiva **deve** passare dal pannello GUI locale (`scripts/open-panel.py`). L'agente prepara e valida `.rea-fs.local/panel/plan.json`, indica all'utente quale prova eseguire e attende la risposta in chat prima di esaminare i log su file.
+- **Terminale diretto (eseguito dall'agente):** è limitato a comandi passivi in sola lettura (`lsusb`, `udevadm`, `rea-fs.py preflight`), compilazioni (`cargo`, `meson`, `ninja`), verifiche offline (`rea-fs.py check`, `unittest`) e analisi statica del firmware/driver.
+- **Fallback a finestra temporale nel terminale:** consentito **solo** se l'ambiente è privo di display grafico (`DISPLAY` e `WAYLAND_DISPLAY` assenti o connessione SSH pura senza inoltro X11/Wayland). In questo caso l'agente presenta l’intera sequenza prima dell’esecuzione, con una durata totale delimitata e chiari segnali visibili o sonori nel terminale; al ritorno analizza la registrazione.
 
 ## Strumenti di supporto e valutazione
 
@@ -121,9 +125,15 @@ Per valutare il matcher separa appoggi di enrollment, sviluppo della soglia e ve
 
 ## Pannello locale degli esperimenti
 
-Se il client non consente interazione tempestiva, o l’utente preferisce una finestra dedicata, usare il pannello descritto in `docs/experiment-panel.md`. Preparare `plan.json` con istruzioni e comandi espliciti, salvandolo atomicamente; chiedere all’utente di aprire `python scripts/open-panel.py` e scegliere la prova. Il pannello non concede autorizzazioni: confrontare comunque categorie e ambito con le preferenze e il consenso in chat.
+Il pannello (`scripts/open-panel.py`) è il canale asincrono principale per le prove con l'utente (dettagli completi in `docs/experiment-panel.md`). Preparare `plan.json` con istruzioni e comandi espliciti salvandolo atomicamente; validarlo con `python3 scripts/experiment-panel.py validate --session-dir .rea-fs.local/panel`. Chiedere all’utente di aprire `python3 scripts/open-panel.py` e scegliere la prova indicata. Il pannello non concede autorizzazioni: confrontare comunque categorie e ambito con le preferenze e il consenso in chat.
 
-Leggere il piano immutabile e `events.jsonl` del run effettivo, non l’ultima revisione del piano come se fosse quella eseguita. Distinguere eventi device, simulation e user. Non inserire chiavi, template, immagini o output arbitrario nei messaggi strutturati. `raw_log` è una scelta esplicita e può contenere dati sensibili del comando; controllare prima il logging del programma. Non avviare contemporaneamente un esperimento dal terminale/agente mentre il pannello controlla lo stesso sensore.
+Al ritorno dell'utente in chat, l'agente non chiede di incollare l'output ma legge direttamente i file su disco:
+1. `.rea-fs.local/panel/panel-status.json` (conferma validità del piano caricato);
+2. `.rea-fs.local/panel/runs-index.jsonl` (cronologia completa append-only di tutti i run eseguiti);
+3. `.rea-fs.local/panel/latest-run.json` (ultimo tentativo registrato);
+4. Nella `run_dir` del tentativo: `summary.json` (con `user_notes`), `events.jsonl` e facoltativamente `output.log`.
+
+Distinguere sempre eventi device, simulation e user. Non inserire chiavi, template, immagini o output arbitrario nei messaggi strutturati. `raw_log` è una scelta esplicita e può contenere dati sensibili del comando; controllare prima il logging del programma. Non avviare contemporaneamente un esperimento dal terminale/agente mentre il pannello controlla lo stesso sensore.
 
 ## Qualità, enrollment e preparazione upstream
 

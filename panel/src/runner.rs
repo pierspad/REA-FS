@@ -12,6 +12,7 @@ pub enum Message {
     Event(Value),
     Error(String),
     Exited,
+    NoteSaved(Result<(), String>),
 }
 
 pub fn load(root: PathBuf, session: PathBuf, tx: SyncSender<Message>, ctx: egui::Context) {
@@ -37,17 +38,47 @@ pub fn load(root: PathBuf, session: PathBuf, tx: SyncSender<Message>, ctx: egui:
     });
 }
 
+pub fn note(root: PathBuf, session: PathBuf, text: String, tx: SyncSender<Message>, ctx: egui::Context) {
+    thread::spawn(move || {
+        let result = Command::new("python3")
+            .arg(root.join("scripts/experiment-panel.py"))
+            .args(["note", "--session-dir"])
+            .arg(session)
+            .arg("--text")
+            .arg(text)
+            .current_dir(root)
+            .output();
+        let outcome = match result {
+            Ok(o) if o.status.success() => Ok(()),
+            Ok(o) => Err(String::from_utf8_lossy(&o.stderr).chars().take(500).collect()),
+            Err(e) => Err(e.to_string()),
+        };
+        let _ = tx.send(Message::NoteSaved(outcome));
+        ctx.request_repaint();
+    });
+}
+
+/// JSON control line for the backend stdin protocol.
+pub fn control(kind: &str, text: Option<&str>) -> String {
+    match text {
+        Some(text) => serde_json::json!({"type": kind, "text": text}).to_string(),
+        None => serde_json::json!({"type": kind}).to_string(),
+    }
+}
+
 pub fn spawn(
     root: PathBuf,
     session: PathBuf,
     id: String,
     fingerprint: String,
+    finger: Option<String>,
     tx: SyncSender<Message>,
     ctx: egui::Context,
 ) -> (mpsc::Sender<String>, thread::JoinHandle<()>) {
     let (controls, rx): (mpsc::Sender<String>, Receiver<String>) = mpsc::channel();
     let handle = thread::spawn(move || {
-        let child = Command::new("python3")
+        let mut command = Command::new("python3");
+        command
             .arg(root.join("scripts/experiment-panel.py"))
             .args(["run", "--session-dir"])
             .arg(session)
@@ -57,7 +88,11 @@ pub fn spawn(
                 "--expected-fingerprint",
                 &fingerprint,
                 "--cancel-on-eof",
-            ])
+            ]);
+        if let Some(finger) = &finger {
+            command.args(["--finger", finger]);
+        }
+        let child = command
             .current_dir(root)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -70,8 +105,8 @@ pub fn spawn(
             Ok(mut child) => {
                 let mut input = child.stdin.take().expect("piped stdin");
                 thread::spawn(move || {
-                    for command in rx {
-                        if writeln!(input, "{{\"type\":\"{command}\"}}").is_err() {
+                    for line in rx {
+                        if writeln!(input, "{line}").is_err() {
                             break;
                         }
                         let _ = input.flush();

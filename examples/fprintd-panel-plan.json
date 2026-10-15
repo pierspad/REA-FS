@@ -1,18 +1,106 @@
 {
-  "schema_version": 1, "plan_id": "fprintd-guided", "revision": 1,
-  "title": "Prove fprintd · richiede driver e credenziali già pronti",
+  "schema_version": 1,
+  "plan_id": "fprintd-guided",
+  "revision": 2,
+  "title": "REA-FS · Banco Prove e Gestione Impronte",
   "experiments": [
     {
-      "id": "enroll-right-index", "title": "Registra indice destro",
-      "instructions": "Lascia libero il sensore durante l’apertura. Attendi lo stato Appoggia il dito; tra i passaggi rimuovilo completamente. Registra o sostituisce l’indice destro dell’utente corrente.",
-      "argv": ["fprintd-enroll", "-f", "right-index-finger"], "cwd": ".",
-      "timeout_seconds": 420, "adapter": "fprintd", "category": "biometric_capture"
+      "id": "verify-auto",
+      "title": "Verifica impronta",
+      "instructions": "Verifica automatica con tutte le impronte registrate. Lascia libero il sensore durante l’apertura, poi appoggia il dito quando richiesto.",
+      "argv": [
+        "fprintd-verify"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 90,
+      "adapter": "fprintd",
+      "category": "biometric_capture",
+      "raw_log": true,
+      "next_steps": "Verifica conclusa. L’agente leggerà esito e metriche dai log privati."
     },
     {
-      "id": "verify-right-index", "title": "Verifica indice destro",
-      "instructions": "Lascia libero il sensore durante l’apertura. Quando richiesto, appoggia il dito indicato dall’agente per questo esperimento. Il template selezionato è l’indice destro.",
-      "argv": ["fprintd-verify", "-f", "right-index-finger"], "cwd": ".",
-      "timeout_seconds": 90, "adapter": "fprintd", "category": "biometric_capture"
+      "id": "enroll-finger",
+      "title": "Registra impronta",
+      "instructions": "Registra il dito selezionato con appoggi consecutivi sul lettore.",
+      "argv": [
+        "fprintd-enroll",
+        "-f",
+        "{finger}"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 180,
+      "adapter": "fprintd",
+      "category": "biometric_capture",
+      "parameters": [
+        "finger"
+      ],
+      "raw_log": true,
+      "next_steps": "Nuova impronta registrata e salvata nel sistema fprintd."
+    },
+    {
+      "id": "delete-finger",
+      "title": "Elimina impronta",
+      "instructions": "Rimuove l'impronta selezionata dal database di sistema di fprintd.",
+      "argv": [
+        "fprintd-delete",
+        "{user}",
+        "-f",
+        "{finger}"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 30,
+      "adapter": "plain",
+      "category": "device_reset",
+      "parameters": [
+        "finger"
+      ],
+      "next_steps": "Impronta rimossa dal database di sistema."
+    },
+    {
+      "id": "list-fingers",
+      "title": "Elenco impronte registrate",
+      "instructions": "Interroga fprintd e mostra quali dita risultano registrate nel sistema.",
+      "argv": [
+        "fprintd-list",
+        "{user}"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 30,
+      "adapter": "plain",
+      "category": "diagnostics",
+      "raw_log": true,
+      "next_steps": "Elenco impronte aggiornato."
+    },
+    {
+      "id": "simulation",
+      "title": "Dimostrazione simulata (Senza sensore)",
+      "instructions": "Simulazione dimostrativa dell'interfaccia: il sensore non viene aperto. Osserva gli stati oppure premi Interrompi.",
+      "argv": [
+        "python3",
+        "scripts/experiment-panel.py",
+        "simulate"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 20,
+      "adapter": "simulation",
+      "category": "simulation",
+      "next_steps": "Dimostrazione grafica conclusa."
+    },
+    {
+      "id": "offline-checks",
+      "title": "Verifica e build driver",
+      "instructions": "Test offline e compilazione: nessuna impronta acquisita. Richiede dipendenze di sviluppo già installate.",
+      "argv": [
+        "python3",
+        "scripts/rea-fs.py",
+        "check"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 600,
+      "adapter": "plain",
+      "category": "local_preparation",
+      "raw_log": true,
+      "next_steps": "Tutti i controlli offline superati."
     }
   ]
 }

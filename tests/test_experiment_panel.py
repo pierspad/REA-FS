@@ -162,3 +162,63 @@ class LauncherTests(unittest.TestCase):
             (session/'plan.json').write_text('keep my plan')
             self.assertFalse(prepare_session(session,template))
             self.assertEqual((session/'plan.json').read_text(),'keep my plan')
+
+
+class LogProtocolTests(RunnerTests):
+    def test_runs_index_accumulates_private_entries(self):
+        self.events(self.start('print(1)'))
+        self.events(self.start('raise SystemExit(3)'))
+        index=self.root/'runs-index.jsonl'
+        self.assertEqual(index.stat().st_mode&0o777,0o600)
+        entries=[json.loads(x) for x in index.read_text().splitlines()]
+        self.assertEqual([e['terminal_type'] for e in entries],['completed','failed'])
+        self.assertEqual(entries[1]['exit_code'],3)
+        for key in ('schema_version','run_id','plan_id','revision','experiment_id','adapter','started_at',
+                    'ended_at','terminal_type','exit_code','run_dir','summary_path'):
+            self.assertIn(key,entries[0])
+        self.assertTrue(Path(entries[0]['summary_path']).exists())
+
+    def test_validate_writes_panel_status_for_valid_and_invalid_plans(self):
+        from tools.experiment_panel import validate_session
+        self.write()
+        validate_session(self.root,self.root)
+        status_path=self.root/'panel-status.json'
+        status=json.loads(status_path.read_text())
+        self.assertEqual(status_path.stat().st_mode&0o777,0o600)
+        self.assertTrue(status['valid']);self.assertEqual(status['experiment_ids'],['one']);self.assertIsNone(status['error'])
+        self.path.write_text('{')
+        with self.assertRaises(ValueError):validate_session(self.root,self.root)
+        status=json.loads(status_path.read_text())
+        self.assertFalse(status['valid']);self.assertTrue(status['error'])
+
+    def test_user_note_during_and_after_run(self):
+        process=self.start('import time;time.sleep(20)')
+        self.assertEqual(json.loads(process.stdout.readline())['type'],'started')
+        long='dito\nsbagliato '+'x'*600
+        events=self.events(process,json.dumps({'type':'note','text':long})+'\n{"type":"cancel"}\n')
+        note=next(e for e in events if e['type']=='user_note')
+        self.assertEqual(note['origin'],'user');self.assertNotIn('\n',note['text']);self.assertLessEqual(len(note['text']),500)
+        latest=json.loads((self.root/'latest-run.json').read_text())
+        self.assertEqual(latest['last_event']['type'],'stopped')
+        self.assertEqual(len(latest['user_notes']),1)
+        out=subprocess.run([sys.executable,str(CLI),'note','--session-dir',str(self.root),'--text','nessun segnale'],
+                           capture_output=True,text=True,timeout=10)
+        self.assertEqual(out.returncode,0,out.stderr)
+        summary=json.loads(Path(latest['summary_path']).read_text())
+        self.assertEqual([n['text'] for n in summary['user_notes']][-1],'nessun segnale')
+        self.assertEqual(Path(latest['summary_path']).stat().st_mode&0o777,0o600)
+        last=json.loads(Path(latest['events_path']).read_text().splitlines()[-1])
+        self.assertEqual((last['type'],last['origin']),('user_note','user'))
+
+    def test_finger_parameter_is_whitelisted(self):
+        self.plan['experiments'][0].update(argv=[sys.executable,'-c','import sys;print(sys.argv[1])','{finger}'])
+        with self.assertRaises(ValueError):self.write()
+        self.plan['experiments'][0]['parameters']=['finger'];self.write()
+        def run(*extra):
+            return subprocess.run([sys.executable,str(CLI),'run','--session-dir',str(self.root),'--experiment','one',*extra],
+                                  capture_output=True,text=True,timeout=10,stdin=subprocess.DEVNULL)
+        self.assertNotEqual(run('--finger','$(id)').returncode,0)
+        self.assertNotEqual(run().returncode,0)
+        ok=run('--finger','left-thumb')
+        self.assertEqual(ok.returncode,0,ok.stderr)
+        self.assertEqual(json.loads(ok.stdout.splitlines()[0])['argv'][-1],'left-thumb')
