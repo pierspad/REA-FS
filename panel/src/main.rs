@@ -90,8 +90,8 @@ fn finger_key(id: &str) -> Option<&'static str> {
 
 impl Panel {
     fn new(cc: &eframe::CreationContext<'_>, root: PathBuf, session: PathBuf) -> Self {
-        cc.egui_ctx.set_visuals(egui::Visuals::light());
-        cc.egui_ctx.style_mut_of(egui::Theme::Light, |style| {
+        cc.egui_ctx.set_visuals(egui::Visuals::dark());
+        cc.egui_ctx.style_mut_of(egui::Theme::Dark, |style| {
             style.spacing.item_spacing = Vec2::new(14.0, 14.0);
             style.spacing.button_padding = Vec2::new(16.0, 10.0);
             style
@@ -106,10 +106,11 @@ impl Panel {
             style
                 .text_styles
                 .insert(egui::TextStyle::Small, egui::FontId::proportional(14.0));
-            style.visuals.override_text_color = Some(Color32::from_rgb(15, 23, 42)); // Slate 900
-            style.visuals.panel_fill = Color32::from_rgb(248, 250, 252); // Slate 50
-            style.visuals.selection.bg_fill = Color32::from_rgb(224, 242, 254); // Sky 100
-            style.visuals.hyperlink_color = Color32::from_rgb(2, 132, 199);
+            style.visuals.override_text_color = Some(Color32::from_rgb(248, 250, 252)); // Slate 50
+            style.visuals.panel_fill = Color32::from_rgb(15, 23, 42); // Slate 900
+            style.visuals.window_fill = Color32::from_rgb(30, 41, 59); // Slate 800
+            style.visuals.selection.bg_fill = Color32::from_rgb(2, 132, 199); // Sky 600
+            style.visuals.hyperlink_color = Color32::from_rgb(56, 189, 248);
         });
         let (tx, rx) = mpsc::sync_channel(128);
         let plan_contents = read_plan_contents(&session);
@@ -179,7 +180,7 @@ impl Panel {
             }
         }
     }
-    fn stop(&mut self) {
+    fn stop(&self) {
         if let Some(tx) = &self.controls {
             let _ = tx.send("cancel".into());
         }
@@ -187,21 +188,32 @@ impl Panel {
     fn process(&mut self, ctx: &egui::Context) {
         while let Ok(msg) = self.rx.try_recv() {
             match msg {
-                Message::Plan(Ok(envelope)) => {
+                Message::Plan(result) => {
                     self.loading = false;
-                    self.error.clear();
-                    if self.plan.is_none() {
-                        self.plan = Some(envelope);
-                    } else if self.worker.is_some() || self.pending.is_some() {
-                        self.pending = Some(envelope);
-                    } else {
-                        self.plan = Some(envelope);
-                        self.state = State::default();
+                    match result {
+                        Ok(plan) => {
+                            self.error.clear();
+                            if self
+                                .plan
+                                .as_ref()
+                                .is_none_or(|p| p.fingerprint != plan.fingerprint)
+                            {
+                                if self.worker.is_some() {
+                                    self.pending = Some(plan);
+                                } else {
+                                    self.plan = Some(plan);
+                                    self.selected = 0;
+                                    self.state = State::default();
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            self.error = e;
+                            if self.worker.is_none() {
+                                self.plan = None;
+                            }
+                        }
                     }
-                }
-                Message::Plan(Err(e)) => {
-                    self.loading = false;
-                    self.error = e;
                 }
                 Message::Error(e) => {
                     self.error = e;
@@ -217,6 +229,7 @@ impl Panel {
                     }
                     if let Some(pending) = self.pending.take() {
                         self.plan = Some(pending);
+                        self.selected = 0;
                         self.state = State::default();
                     }
                     if self.closing {
@@ -251,30 +264,30 @@ fn fingerprint_scanner(ui: &mut egui::Ui, state: &State) {
 
     let (bg_fill, border_stroke, ridge_color, glow_color) = if state.present {
         (
-            Color32::from_rgb(236, 253, 245),
-            Stroke::new(2.8, Color32::from_rgb(16, 185, 129)),
-            Color32::from_rgb(5, 150, 105),
-            Some(Color32::from_rgba_premultiplied(16, 185, 129, 50)),
+            Color32::from_rgb(6, 78, 59), // Emerald 900
+            Stroke::new(2.8, Color32::from_rgb(52, 211, 153)), // Emerald 400
+            Color32::from_rgb(52, 211, 153),
+            Some(Color32::from_rgba_premultiplied(16, 185, 129, 60)),
         )
     } else if state.needed {
         (
-            Color32::from_rgb(240, 249, 255),
-            Stroke::new(2.5, Color32::from_rgb(2, 132, 199)),
-            Color32::from_rgb(2, 132, 199),
-            Some(Color32::from_rgba_premultiplied(2, 132, 199, 45)),
+            Color32::from_rgb(12, 74, 110), // Sky 900
+            Stroke::new(2.5, Color32::from_rgb(56, 189, 248)), // Sky 400
+            Color32::from_rgb(56, 189, 248),
+            Some(Color32::from_rgba_premultiplied(14, 165, 233, 50)),
         )
     } else if state.active {
         (
-            Color32::from_rgb(254, 252, 232),
-            Stroke::new(2.0, Color32::from_rgb(217, 119, 6)),
-            Color32::from_rgb(180, 83, 9),
-            Some(Color32::from_rgba_premultiplied(217, 119, 6, 35)),
+            Color32::from_rgb(69, 26, 3), // Amber 950
+            Stroke::new(2.0, Color32::from_rgb(245, 158, 11)), // Amber 500
+            Color32::from_rgb(251, 191, 36),
+            Some(Color32::from_rgba_premultiplied(245, 158, 11, 40)),
         )
     } else {
         (
-            Color32::from_rgb(248, 250, 252),
-            Stroke::new(1.8, Color32::from_rgb(203, 213, 225)),
-            Color32::from_rgb(100, 116, 139),
+            Color32::from_rgb(15, 23, 42), // Slate 900
+            Stroke::new(1.8, Color32::from_rgb(71, 85, 105)), // Slate 600
+            Color32::from_rgb(148, 163, 184), // Slate 400
             None,
         )
     };
@@ -364,7 +377,7 @@ fn simulation_visual(ui: &mut egui::Ui, state: &State) {
             Pos2::new(rect.left() + 35.0, y),
             Pos2::new(rect.right() - 35.0, y),
         ],
-        Stroke::new(2.5, Color32::from_rgb(203, 213, 225)),
+        Stroke::new(2.5, Color32::from_rgb(71, 85, 105)),
     );
     for index in 0..3 {
         let center = Pos2::new(rect.left() + 35.0 + index as f32 * 90.0, y);
@@ -375,7 +388,7 @@ fn simulation_visual(ui: &mut egui::Ui, state: &State) {
             if done {
                 Color32::from_rgb(14, 165, 233)
             } else {
-                Color32::from_rgb(226, 232, 240)
+                Color32::from_rgb(30, 41, 59)
             },
         );
         painter.text(
@@ -386,7 +399,7 @@ fn simulation_visual(ui: &mut egui::Ui, state: &State) {
             if done {
                 Color32::WHITE
             } else {
-                Color32::from_rgb(71, 85, 105)
+                Color32::from_rgb(148, 163, 184)
             },
         );
     }
@@ -399,21 +412,21 @@ impl eframe::App for Panel {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
         egui::CentralPanel::default()
-            .frame(egui::Frame::new().inner_margin(24).fill(Color32::from_rgb(248, 250, 252)))
+            .frame(egui::Frame::new().inner_margin(24).fill(Color32::from_rgb(15, 23, 42)))
             .show(ui, |ui| {
                 egui::ScrollArea::vertical().show(ui, |ui| {
-                    // Header Bar
+                    // Header Bar (Dark Mode)
                     ui.horizontal(|ui| {
                         ui.heading(
                             RichText::new("REA-FS")
                                 .size(26.0)
-                                .color(Color32::from_rgb(15, 23, 42))
+                                .color(Color32::from_rgb(248, 250, 252))
                                 .strong(),
                         );
                         ui.label(
                             RichText::new("· Banco Prove & Gestione Impronte")
                                 .size(17.0)
-                                .color(Color32::from_rgb(71, 85, 105)),
+                                .color(Color32::from_rgb(148, 163, 184)),
                         );
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                             if ui
@@ -422,7 +435,7 @@ impl eframe::App for Panel {
                                     egui::Button::new(
                                         RichText::new("🔄 Ricarica piano")
                                             .size(14.5)
-                                            .color(Color32::from_rgb(15, 23, 42)),
+                                            .color(Color32::from_rgb(248, 250, 252)),
                                     ),
                                 )
                                 .clicked()
@@ -436,7 +449,7 @@ impl eframe::App for Panel {
 
                     if !self.error.is_empty() {
                         ui.colored_label(
-                            Color32::from_rgb(220, 38, 38),
+                            Color32::from_rgb(248, 113, 113),
                             RichText::new(&self.error).size(15.0).strong(),
                         );
                         ui.add_space(8.0);
@@ -450,7 +463,7 @@ impl eframe::App for Panel {
                     };
 
                     ui.horizontal_top(|ui| {
-                        // Left Sidebar: Experiments List
+                        // Left Sidebar: Experiments List (Dark Cards)
                         ui.allocate_ui_with_layout(
                             Vec2::new(280.0, 0.0),
                             egui::Layout::top_down(egui::Align::Min),
@@ -458,10 +471,10 @@ impl eframe::App for Panel {
                                 ui.label(
                                     RichText::new("Scegli l'operazione:")
                                         .size(16.5)
-                                        .color(Color32::from_rgb(15, 23, 42))
+                                        .color(Color32::from_rgb(248, 250, 252))
                                         .strong(),
                                 );
-                                ui.add_space(4.0);
+                                ui.add_space(6.0);
 
                                 for (index, task) in envelope.plan.experiments.iter().enumerate() {
                                     let is_selected = self.selected == index;
@@ -482,25 +495,25 @@ impl eframe::App for Panel {
                                     }
                                 }
 
-                                ui.add_space(16.0);
+                                ui.add_space(18.0);
                                 ui.separator();
-                                ui.add_space(6.0);
+                                ui.add_space(8.0);
 
                                 ui.label(
                                     RichText::new("Dispositivo:")
                                         .size(14.0)
-                                        .color(Color32::from_rgb(71, 85, 105))
+                                        .color(Color32::from_rgb(148, 163, 184))
                                         .strong(),
                                 );
                                 ui.label(
                                     RichText::new("Synaptics 06cb:00dc (Acer Aspire A514-54)")
                                         .size(13.5)
-                                        .color(Color32::from_rgb(15, 23, 42)),
+                                        .color(Color32::from_rgb(226, 232, 240)),
                                 );
                                 ui.label(
                                     RichText::new("Display: Wayland nativo")
                                         .size(13.5)
-                                        .color(Color32::from_rgb(16, 185, 129))
+                                        .color(Color32::from_rgb(52, 211, 153))
                                         .strong(),
                                 );
                             },
@@ -516,11 +529,11 @@ impl eframe::App for Panel {
                             let is_fprintd = task.adapter == "fprintd";
 
                             let accent_color = if sim {
-                                Color32::from_rgb(217, 119, 6) // Amber
+                                Color32::from_rgb(245, 158, 11) // Amber 500
                             } else if is_fprintd {
-                                Color32::from_rgb(2, 132, 199) // Sky
+                                Color32::from_rgb(56, 189, 248) // Sky 400
                             } else {
-                                Color32::from_rgb(13, 148, 136) // Teal
+                                Color32::from_rgb(45, 212, 191) // Teal 400
                             };
 
                             // Title & Tag
@@ -528,7 +541,7 @@ impl eframe::App for Panel {
                                 ui.heading(
                                     RichText::new(&task.title)
                                         .size(24.0)
-                                        .color(Color32::from_rgb(15, 23, 42))
+                                        .color(Color32::from_rgb(248, 250, 252))
                                         .strong(),
                                 );
                             });
@@ -558,7 +571,7 @@ impl eframe::App for Panel {
                                         ui.label(
                                             RichText::new(format!("Alias impronta: \"{}\"", current_alias))
                                                 .size(14.5)
-                                                .color(Color32::from_rgb(71, 85, 105)),
+                                                .color(Color32::from_rgb(148, 163, 184)),
                                         );
                                         if ui.small_button("✏ Rinomina").clicked() {
                                             self.alias_draft = current_alias;
@@ -583,12 +596,12 @@ impl eframe::App for Panel {
 
                             ui.add_space(10.0);
 
-                            // Main Interactive Card
+                            // Main Interactive Card (Dark Slate 800)
                             egui::Frame::new()
                                 .inner_margin(18)
-                                .rounding(12.0)
-                                .fill(Color32::WHITE)
-                                .stroke(Stroke::new(1.0, Color32::from_rgb(226, 232, 240)))
+                                .corner_radius(12.0)
+                                .fill(Color32::from_rgb(30, 41, 59))
+                                .stroke(Stroke::new(1.0, Color32::from_rgb(51, 65, 85)))
                                 .show(ui, |ui| {
                                     ui.vertical_centered(|ui| {
                                         if sim {
@@ -601,7 +614,7 @@ impl eframe::App for Panel {
                                                     "Indicatore biometrico di contatto e stato sensore.",
                                                 )
                                                 .size(13.5)
-                                                .color(Color32::from_rgb(100, 116, 139)),
+                                                .color(Color32::from_rgb(148, 163, 184)),
                                             );
                                         }
 
@@ -609,22 +622,22 @@ impl eframe::App for Panel {
 
                                         // Big prominent status label
                                         let status_color = if self.state.present {
-                                            Color32::from_rgb(5, 150, 105) // Green
+                                            Color32::from_rgb(52, 211, 153) // Emerald 400
                                         } else if self.state.needed {
-                                            Color32::from_rgb(2, 132, 199) // Sky
+                                            Color32::from_rgb(56, 189, 248) // Sky 400
                                         } else if self.state.active {
-                                            Color32::from_rgb(217, 119, 6) // Amber
+                                            Color32::from_rgb(251, 191, 36) // Amber 400
                                         } else if self.state.status.contains("riconosciuta")
                                             || self.state.status.contains("completat")
                                         {
-                                            Color32::from_rgb(5, 150, 105) // Green
+                                            Color32::from_rgb(52, 211, 153) // Emerald 400
                                         } else if self.state.status.contains("non riconosciuta")
                                             || self.state.status.contains("fallit")
                                             || self.state.status.contains("scaduto")
                                         {
-                                            Color32::from_rgb(220, 38, 38) // Red
+                                            Color32::from_rgb(248, 113, 113) // Red 400
                                         } else {
-                                            Color32::from_rgb(15, 23, 42) // Slate 900
+                                            Color32::from_rgb(248, 250, 252) // Slate 50
                                         };
 
                                         ui.label(
@@ -637,17 +650,17 @@ impl eframe::App for Panel {
 
                                     ui.add_space(10.0);
 
-                                    // Guidance block
+                                    // Guidance block (Dark Slate 900)
                                     egui::Frame::new()
                                         .inner_margin(12)
-                                        .rounding(8.0)
-                                        .fill(Color32::from_rgb(248, 250, 252))
-                                        .stroke(Stroke::new(1.0, Color32::from_rgb(226, 232, 240)))
+                                        .corner_radius(8.0)
+                                        .fill(Color32::from_rgb(15, 23, 42))
+                                        .stroke(Stroke::new(1.0, Color32::from_rgb(51, 65, 85)))
                                         .show(ui, |ui| {
                                             ui.label(
                                                 RichText::new("Cosa fare:")
                                                     .size(15.0)
-                                                    .color(Color32::from_rgb(15, 23, 42))
+                                                    .color(Color32::from_rgb(248, 250, 252))
                                                     .strong(),
                                             );
                                             ui.label(
@@ -657,7 +670,7 @@ impl eframe::App for Panel {
                                                     &task.instructions
                                                 })
                                                 .size(15.5)
-                                                .color(Color32::from_rgb(51, 65, 85)),
+                                                .color(Color32::from_rgb(203, 213, 225)),
                                             );
                                         });
 
@@ -684,12 +697,12 @@ impl eframe::App for Panel {
                                                 self.state.remaining()
                                             ))
                                             .size(14.0)
-                                            .color(Color32::from_rgb(100, 116, 139)),
+                                            .color(Color32::from_rgb(148, 163, 184)),
                                         );
                                     }
                                 });
 
-                            ui.add_space(12.0);
+                            ui.add_space(14.0);
 
                             // Action buttons
                             ui.horizontal_wrapped(|ui| {
@@ -710,7 +723,7 @@ impl eframe::App for Panel {
                                         .color(Color32::WHITE)
                                         .strong(),
                                 )
-                                .fill(accent_color)
+                                .fill(Color32::from_rgb(2, 132, 199))
                                 .min_size(Vec2::new(200.0, 46.0));
 
                                 if ui.add_enabled(can_start, btn).clicked() {
@@ -782,7 +795,7 @@ impl eframe::App for Panel {
 
                     if self.pending.is_some() {
                         ui.colored_label(
-                            Color32::from_rgb(217, 119, 6),
+                            Color32::from_rgb(251, 191, 36),
                             RichText::new("Piano aggiornato: la prova attiva conserva la revisione iniziale.")
                                 .size(14.0)
                                 .strong(),
@@ -793,7 +806,7 @@ impl eframe::App for Panel {
                         ui.label(
                             RichText::new("Risultato salvato automaticamente • l’agente può continuare")
                                 .size(16.0)
-                                .color(Color32::from_rgb(16, 185, 129))
+                                .color(Color32::from_rgb(52, 211, 153))
                                 .strong(),
                         );
                         ui.label(
@@ -818,13 +831,13 @@ impl eframe::App for Panel {
                                 "Log salvati automaticamente con timestamp. Nessuna copia manuale necessaria.",
                             )
                             .size(14.0)
-                            .color(Color32::from_rgb(100, 116, 139)),
+                            .color(Color32::from_rgb(148, 163, 184)),
                         );
                     }
 
                     if self.copy_requested.is_some_and(|time| time.elapsed() < Duration::from_secs(3)) {
                         ui.colored_label(
-                            Color32::from_rgb(16, 185, 129),
+                            Color32::from_rgb(52, 211, 153),
                             RichText::new("✓ Testo copiato negli appunti.").size(14.0).strong(),
                         );
                     }
