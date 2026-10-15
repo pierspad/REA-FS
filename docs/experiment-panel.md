@@ -29,7 +29,7 @@ Usare `--session-dir` nel launcher per un’altra sessione. Il pannello cerca di
 - Interrompi; conferma manuale registrata separatamente dai segnali del dispositivo.
 - Esito e directory dei log privati.
 
-L’icona dell’impronta è stilizzata: non mostra un’immagine biometrica né stima quali zone del dito siano state coperte. La simulazione porta un’indicazione esplicita e tutti i suoi eventi di sensore sono marcati `simulation`.
+L’icona dell’impronta è stilizzata: non mostra un’immagine biometrica né stima quali zone del dito siano state coperte. La simulazione mostra tre indicatori di avanzamento, non l’impronta; dice di non toccare il lettore e non richiede appoggi reali. I suoi eventi sono marcati `simulation`. L’impronta stilizzata compare per l’adattatore hardware fprintd, con colori legati agli eventi osservati e nessuna pretesa di copertura anatomica.
 
 ## Come l’agente prepara il piano
 
@@ -43,7 +43,7 @@ Un piano eseguibile deve provenire da una fonte fidata. L’esecuzione senza she
 
 ## Eventi e log
 
-Ogni esecuzione crea una directory UUID 0700 con piano immutabile e `events.jsonl` 0600. Gli eventi includono ID piano/revisione/esperimento/run, timestamp UTC, durata monotona, tipo e origine. Il file locale resta ignorato da Git.
+Ogni esecuzione crea una directory con timestamp UTC e UUID (0700), piano immutabile e `events.jsonl` (0600). All’avvio e all’esito aggiorna atomicamente `summary.json` e il riferimento di sessione `latest-run.json`, con ID, percorsi, primo/ultimo evento e conteggio eventi. `handoff.txt` indica come riprendere. Questi file sono 0600 e permettono all’agente di trovare i risultati senza appunti o messaggi copiati. Per seguire una prova attiva leggere `events.jsonl`; il riepilogo non viene riscritto a ogni progresso. Un processo terminato forzatamente può lasciare solo l’evento iniziale: non scambiarlo per completamento. Gli eventi includono ID piano/revisione/esperimento/run, timestamp UTC, durata monotona, tipo e origine. Il file locale resta ignorato da Git.
 
 Un comando ordinario produce eventi di avvio/esito, non eventi hardware ricavati da testo arbitrario. Il titolo e il pulsante Esegui nominano la prova selezionata. A fine esecuzione «Copia messaggio per l’agente» copia i percorsi esatti di piano e log del run, insieme all’indicazione `next_steps`: l’utente torna alla chat e l’agente riprende da quelle evidenze. L’adattatore selezionato interpreta solo i segnali previsti. Se `raw_log: true`, l’output grezzo viene salvato separatamente come `output.log`, con limite 4 MiB e righe limitate a 64 KiB. Può contenere dati sensibili del programma scelto: abilitarlo solo dopo averne controllato il logging. Non inserire chiavi, template o immagini nei messaggi dell’adattatore.
 
@@ -69,7 +69,7 @@ Python: validazione, permessi, piani incompleti/oversized, revisioni, mancata es
 
 I test GUI e la simulazione non dimostrano una nuova prova hardware attraverso il pannello. Il driver resta soggetto ai limiti e agli esiti descritti nell’audit. Le build C più recenti non sono automaticamente installate dal pannello.
 
-Build release misurata su questa macchina: circa 7,4 MiB, prima compilazione circa 2 min 14 s. Questi valori non includono toolchain e cache Cargo e non sono una misura su altre macchine. La finestra è stata aperta e verificata visivamente; due avvii dal pannello di «Esegui test e build» hanno prodotto log di avvio e completamento con exit code 0. Questo verifica quel percorso clic→run; non verifica la simulazione, il sensore o la chiusura normale. La distruzione forzata esterna della finestra X11 ha prodotto un errore winit: non viene presentata come prova della normale chiusura.
+Build release iniziale misurata su questa macchina: circa 7,3 MiB, prima compilazione circa 2 min 14 s. Con il supporto appunti X11/Wayland la build del pannello aggiornato pesa circa 8,4 MiB (8.796.536 byte). Questi valori non includono toolchain e cache Cargo e non sono una misura su altre macchine. La finestra è stata aperta e verificata visivamente; due avvii dal pannello di «Esegui test e build» hanno prodotto log di avvio e completamento con exit code 0. Questo verifica quel percorso clic→run; non verifica la simulazione, il sensore o la chiusura normale. La distruzione forzata esterna della finestra X11 ha prodotto un errore winit: non viene presentata come prova della normale chiusura.
 
 ## Peso e scelta del toolkit
 
@@ -90,3 +90,9 @@ Esempio di indicazione finale scritta dall’agente nel singolo esperimento:
 ```json
 "next_steps": "Torna alla chat e chiedi all’agente di analizzare il tentativo prima di preparare una nuova acquisizione."
 ```
+
+## Appunti e ripresa automatica
+
+La build include esplicitamente la feature `clipboard` di eframe per l’integrazione X11/Wayland. La prima build l’aveva omessa disattivando le feature predefinite: `copy_text` restava confinato al fallback interno e non alimentava gli appunti del desktop. Il supporto corretto aggiunge le dipendenze di integrazione necessarie, senza abilitare l’intero insieme predefinito di eframe. Il clic mostra un riscontro visivo; i file su disco restano il percorso principale e non dipendono dagli appunti.
+
+Chi riprende l’indagine legge prima il `latest-run.json` nella directory della sessione scelta. I run precedenti non sono cancellati: per ricostruire una serie leggere anche gli altri riepiloghi. Il riferimento descrive l’ultimo aggiornamento del backend, non garantisce che non esistano altre finestre o sensori occupati. Non avviare esperimenti concorrenti sullo stesso dispositivo.

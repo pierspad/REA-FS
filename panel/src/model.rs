@@ -86,7 +86,15 @@ impl State {
             "device_state" if matches!(event["origin"].as_str(), Some("device" | "simulation")) => {
                 self.needed = event["needed"].as_bool().unwrap_or(false);
                 self.present = event["present"].as_bool().unwrap_or(false);
-                self.status = if self.present {
+                self.status = if self.simulation {
+                    if self.present {
+                        "Contatto simulato"
+                    } else if self.needed {
+                        "Attesa simulata"
+                    } else {
+                        "Rilascio simulato"
+                    }
+                } else if self.present {
                     "Dito rilevato"
                 } else if self.needed {
                     "Appoggia il dito"
@@ -101,7 +109,12 @@ impl State {
             "progress" => {
                 self.completed = event["completed"].as_u64().unwrap_or(0);
                 self.total = event["total"].as_u64().unwrap_or(0);
-                self.status = "Appoggio acquisito: rimuovi il dito".into();
+                self.status = if self.simulation {
+                    "Passaggio simulato completato"
+                } else {
+                    "Appoggio acquisito: rimuovi il dito"
+                }
+                .into();
             }
             "stopping" => {
                 self.status = "Interruzione in corso".into();
@@ -132,7 +145,9 @@ impl State {
                     .into();
                 if self.detail.is_empty() {
                     if let Some(code) = event["exit_code"].as_i64() {
-                        self.detail = format!("Il comando è terminato con codice {code}. Dettagli nei log privati.");
+                        self.detail = format!(
+                            "Il comando è terminato con codice {code}. Dettagli nei log privati."
+                        );
                     }
                 }
                 if event["cleanup_not_confirmed"] == true {
@@ -199,6 +214,15 @@ mod tests {
         state.apply(json!({"type":"started","run_id":"a","next_steps":"Continua dai log."}));
         state.apply(json!({"type":"failed","run_id":"a","exit_code":2}));
         assert_eq!(state.next_steps, "Continua dai log.");
+    }
+    #[test]
+    fn simulation_never_requests_a_physical_touch() {
+        let mut state = State::default();
+        state.apply(json!({"type":"started","run_id":"a","adapter":"simulation"}));
+        state.apply(json!({"type":"device_state","run_id":"a","origin":"simulation","needed":true,"present":false}));
+        assert_eq!(state.status, "Attesa simulata");
+        state.apply(json!({"type":"device_state","run_id":"a","origin":"simulation","needed":false,"present":true}));
+        assert_eq!(state.status, "Contatto simulato");
     }
     #[test]
     fn copy_command_quotes_shell_metacharacters() {

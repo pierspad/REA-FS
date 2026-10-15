@@ -25,8 +25,8 @@ Per leggere il progetto non servono account freedesktop, chiavi SSH o privilegi 
    python3 scripts/open-panel.py
    ```
 
-4. Per controllare solo l’interfaccia, seleziona **Prova il pannello** a sinistra, verifica il titolo a destra e premi **Esegui: Prova il pannello**. Dura circa 8 secondi: non devi appoggiare il dito, gli stati sono simulati. «Controlla l’ambiente» raccoglie metadati; «Esegui test e build» esegue verifiche offline. Queste due prove non animano il contatto dell’impronta.
-5. A fine prova premi **Copia messaggio per l’agente**, incollalo nella chat e chiedigli di continuare. L’agente legge piano eseguito, log privati ed esito; prepara poi il prossimo passo. Se può osservare i file durante l’esecuzione, può farlo senza aspettare il messaggio.
+4. Per controllare solo l’interfaccia, seleziona **Prova il pannello** a sinistra, verifica il titolo a destra e premi **Avvia dimostrazione**. Dura circa 8 secondi: non devi appoggiare il dito, gli stati sono simulati. «Controlla l’ambiente» raccoglie metadati; «Esegui test e build» esegue verifiche offline. Queste due prove non animano il contatto dell’impronta.
+5. A fine prova torna alla chat e chiedi all’agente di continuare. Non serve copiare l’output: l’agente legge `.rea-fs.local/panel/latest-run.json`, poi piano e log del tentativo indicato. Ogni tentativo ha una cartella con timestamp UTC, `events.jsonl`, `summary.json` e `handoff.txt`. Con una sessione personalizzata legge la cartella indicata all’avvio. «Copia messaggio per l’agente» è una comodità facoltativa.
 
 Il pannello è opzionale: l’agente può usare il terminale. La finestra è Rust/egui, mentre il supervisore usa Python con libreria standard. La prima compilazione richiede Rust/Cargo, un compilatore C e le dipendenze grafiche; non esiste ancora un binario pubblico pronto da scaricare. [Prerequisiti, comandi e protocollo](docs/experiment-panel.md).
 

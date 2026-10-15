@@ -65,3 +65,7 @@ Il plugin TOD attuale non si carica in libfprint upstream. Il percorso imaging a
 ## Metodo da riusare su un altro sensore
 
 Non copiare valori 20/25 frame, RMS 15, geometria, cinque stage o soglia 0,50. Prima identificare il contratto del sensore: immagini o matching interno, dimensioni/encoder, eventi di contatto, calibrazione richiesta, stato persistente, formato template e operazioni di chiusura. Scrivere domanda sperimentale, criteri di arresto e successo; produrre un piano GUI o CLI limitato; leggere il run effettivo e aggiornare il checkpoint. Cambiare una variabile per confronto. L’utente interviene per i contatti fisici e le decisioni necessarie; l’agente prepara comandi, verifica prerequisiti e analizza i risultati.
+
+## Contatto osservato e stato dell’operazione
+
+Controllare anche dove il driver emette `finger-present`: un flag D-Bus è un rapporto del driver, non un secondo sensore indipendente. Nel prototipo attuale il ramo che ha raccolto 25 frame azzera PRESENT prima di aver necessariamente osservato la rimozione fisica. L’appoggio successivo richiede comunque tre frame vuoti, ma l’indicatore può anticipare il rilascio. Va distinto dal caso della GUI di simulazione (che non legge il dispositivo) e verificato nella prossima revisione della macchina a stati; nessuna correzione hardware di questo ramo è dichiarata testata qui.

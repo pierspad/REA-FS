@@ -3,8 +3,8 @@ mod runner;
 use eframe::egui::{self, Color32, RichText, Stroke, Vec2};
 use model::{Envelope, State, shell_quote};
 use runner::Message;
-use std::path::PathBuf;
 use std::io::Read;
+use std::path::PathBuf;
 use std::sync::mpsc::{self, Receiver, Sender, SyncSender};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
@@ -25,6 +25,7 @@ struct Panel {
     last_poll: Instant,
     plan_contents: Option<Vec<u8>>,
     closing: bool,
+    copy_requested: Option<Instant>,
 }
 // Bound idle file reads by the same limit used by the validator. Validation is
 // still repeated by the backend immediately before spawning an experiment.
@@ -39,7 +40,18 @@ impl Panel {
     fn new(cc: &eframe::CreationContext<'_>, root: PathBuf, session: PathBuf) -> Self {
         cc.egui_ctx.set_visuals(egui::Visuals::light());
         cc.egui_ctx.style_mut_of(egui::Theme::Light, |style| {
-            style.spacing.item_spacing = Vec2::new(10.0, 10.0);
+            style.spacing.item_spacing = Vec2::new(12.0, 12.0);
+            style.spacing.button_padding = Vec2::new(14.0, 10.0);
+            style
+                .text_styles
+                .insert(egui::TextStyle::Body, egui::FontId::proportional(16.0));
+            style
+                .text_styles
+                .insert(egui::TextStyle::Button, egui::FontId::proportional(15.0));
+            style
+                .text_styles
+                .insert(egui::TextStyle::Small, egui::FontId::proportional(13.0));
+            style.visuals.override_text_color = Some(Color32::from_rgb(26, 45, 60));
             style.visuals.panel_fill = Color32::from_rgb(246, 248, 251);
             style.visuals.selection.bg_fill = Color32::from_rgb(210, 229, 254);
             style.visuals.hyperlink_color = Color32::from_rgb(25, 94, 200);
@@ -68,6 +80,7 @@ impl Panel {
             loading: true,
             last_poll: Instant::now(),
             closing: false,
+            copy_requested: None,
         }
     }
     fn load(&mut self, ctx: &egui::Context) {
@@ -125,17 +138,18 @@ impl Panel {
                                 .as_ref()
                                 .is_none_or(|p| p.fingerprint != plan.fingerprint)
                             {
-                                if self.controls.is_some() {
+                                if self.worker.is_some() {
                                     self.pending = Some(plan);
                                 } else {
                                     self.plan = Some(plan);
                                     self.selected = 0;
+                                    self.state = State::default();
                                 }
                             }
                         }
                         Err(error) => {
                             self.error = error;
-                            if self.controls.is_none() {
+                            if self.worker.is_none() {
                                 self.plan = None;
                             }
                         }
@@ -159,6 +173,7 @@ impl Panel {
                     if let Some(plan) = self.pending.take() {
                         self.plan = Some(plan);
                         self.selected = 0;
+                        self.state = State::default();
                     }
                     if self.closing {
                         ctx.send_viewport_cmd(egui::ViewportCommand::Close);
@@ -185,18 +200,60 @@ impl Panel {
     }
 }
 fn fingerprint(ui: &mut egui::Ui, color: Color32) {
-    let (rect, _) = ui.allocate_exact_size(Vec2::new(126.0, 145.0), egui::Sense::hover());
+    let (rect, _) = ui.allocate_exact_size(Vec2::new(176.0, 160.0), egui::Sense::hover());
     let c = rect.center();
-    for ridge in 0..9 {
-        let radius = 9.0 + ridge as f32 * 5.0;
-        let mut points = vec![c + Vec2::new(-radius, 30.0 - ridge as f32)];
-        points.extend((0..60).map(|i| {
-            let angle = std::f32::consts::PI * (1.0 + i as f32 / 59.0);
-            c + Vec2::new(radius * angle.cos(), radius * 1.17 * angle.sin())
-        }));
-        points.push(c + Vec2::new(radius, 38.0 - ridge as f32 * 1.8));
+    ui.painter()
+        .circle_filled(c, 77.0, Color32::from_rgb(235, 244, 242));
+    for ridge in 0..10 {
+        let radius = 10.0 + ridge as f32 * 4.2;
+        let points = (0..90)
+            .map(|i| {
+                let t = i as f32 / 89.0;
+                let angle = -0.2 + t * 4.9;
+                c + Vec2::new(
+                    radius * angle.cos() + 4.0 * (t * 3.0).sin(),
+                    radius * 1.18 * angle.sin(),
+                )
+            })
+            .collect();
         ui.painter()
-            .add(egui::Shape::line(points, Stroke::new(2.0, color)));
+            .add(egui::Shape::line(points, Stroke::new(1.8, color)));
+    }
+}
+fn simulation_visual(ui: &mut egui::Ui, state: &State) {
+    let (rect, _) = ui.allocate_exact_size(Vec2::new(250.0, 110.0), egui::Sense::hover());
+    let y = rect.center().y;
+    let painter = ui.painter();
+    painter.line_segment(
+        [
+            egui::pos2(rect.left() + 35.0, y),
+            egui::pos2(rect.right() - 35.0, y),
+        ],
+        Stroke::new(2.0, Color32::from_rgb(211, 219, 226)),
+    );
+    for index in 0..3 {
+        let center = egui::pos2(rect.left() + 35.0 + index as f32 * 90.0, y);
+        let done = state.completed > index;
+        painter.circle_filled(
+            center,
+            20.0,
+            if done {
+                Color32::from_rgb(165, 113, 28)
+            } else {
+                Color32::from_rgb(232, 237, 242)
+            },
+        );
+        painter.text(
+            center,
+            egui::Align2::CENTER_CENTER,
+            format!("{}", index + 1),
+            egui::FontId::proportional(16.0),
+            if done {
+                Color32::WHITE
+            } else {
+                Color32::from_rgb(82, 99, 115)
+            },
+        );
     }
 }
 impl eframe::App for Panel {
@@ -205,89 +262,94 @@ impl eframe::App for Panel {
     }
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
-        egui::CentralPanel::default().show(ui,|ui| {
+        egui::CentralPanel::default().frame(egui::Frame::new().inner_margin(22).fill(Color32::from_rgb(246,248,251))).show(ui, |ui| {
             egui::ScrollArea::vertical().show(ui, |ui| {
-            ui.add_space(8.0);
-            ui.horizontal(|ui| {
-                ui.heading("REA-FS");ui.label("Esperimenti assistiti");
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center),|ui| {
-                    if ui.add_enabled(!self.loading,egui::Button::new("Ricarica piano")).clicked(){self.load(&ctx);}
-                    if let Some(plan)=&self.plan {ui.small(format!("Revisione {}",plan.plan.revision));}
-                });
-            });
-            ui.separator();
-            if !self.error.is_empty(){ui.colored_label(Color32::from_rgb(165,38,38),&self.error);}
-            if self.plan.is_none() {
-                ui.add_space(24.0);ui.heading("Apri un piano di esperimenti");
-                ui.label("L’agente prepara plan.json nella cartella della sessione. Nessuna azione parte automaticamente.");
-                ui.monospace(self.session.join("plan.json").display().to_string());
-                return;
-            }
-            let envelope=self.plan.as_ref().expect("checked plan").clone();
-            ui.small(format!("{} · {}",envelope.plan.title,envelope.plan.plan_id));
-            ui.columns(2,|columns| {
-                let left=&mut columns[0];
-                left.set_max_width(290.0);
-                left.add_space(12.0);left.strong("Scegli una prova");
-                for (index,task) in envelope.plan.experiments.iter().enumerate() {
-                    if left.add_enabled(self.worker.is_none(),egui::Button::selectable(self.selected==index,&task.title).min_size(Vec2::new(260.0,35.0))).clicked(){self.selected=index;self.state=State::default();}
-                }
-                left.add_space(14.0);
-                left.small("Le istruzioni e i comandi provengono dal piano locale. Controllali prima di eseguire.");
-                let task=&envelope.plan.experiments[self.selected];
-                left.add_space(10.0);left.label(format!("Durata massima: {} s",task.timeout_seconds));
-                if task.raw_log {left.colored_label(Color32::from_rgb(143,85,8),"Questa prova salva anche l’output grezzo in un file privato.");}
-                left.add_space(10.0);
-                let command=task.argv.iter().map(|a|shell_quote(a)).collect::<Vec<_>>().join(" ");
-                egui::CollapsingHeader::new("Comando e directory").default_open(true).show(left,|ui| {
-                    ui.monospace(&command);ui.monospace(self.root.join(&task.cwd).display().to_string());
-                    ui.small(format!("Categoria: {}",task.category));
-                    if ui.button("Copia comando").clicked(){ui.ctx().copy_text(command.clone());}
-                });
-                let right=&mut columns[1];
-                right.vertical_centered(|ui| {
-                    ui.label(RichText::new(&task.title).size(18.0).strong());
-                    if task.adapter == "plain" {
-                        ui.small("Comando senza eventi di contatto: l’icona non segue il sensore.");
-                    }
-                    let sim=if self.worker.is_some(){self.state.simulation}else{task.adapter=="simulation"};
-                    if sim {ui.colored_label(Color32::from_rgb(143,85,8),RichText::new("Simulazione · nessun sensore aperto").strong());}
-                    let color=if self.state.present{Color32::from_rgb(23,122,110)}else if self.state.needed{Color32::from_rgb(25,94,200)}else{Color32::from_rgb(142,156,174)};
-                    fingerprint(ui,color);
-                    ui.label(RichText::new(&self.state.status).size(25.0).strong());
-                    ui.add_space(8.0);
-                    ui.label(if self.worker.is_some() || !self.state.run_id.is_empty(){&self.state.detail}else{&task.instructions});
-                    if self.state.active && self.state.timeout>0.0 {ui.label(format!("Tempo residuo: {:.0} s",self.state.remaining()));}
-                    if self.state.total>0 {
-                        ui.add(egui::ProgressBar::new((self.state.completed as f32/self.state.total as f32).min(1.0)).text(format!("{} / {} appoggi",self.state.completed,self.state.total)));
-                    }
-                    ui.add_space(16.0);
-                    ui.horizontal(|ui| {
-                        if ui.add_enabled(self.worker.is_none() && self.error.is_empty(),egui::Button::new(RichText::new(format!("Esegui: {}", task.title)).strong()).min_size(Vec2::new(110.0,40.0))).clicked(){self.start(&ctx);}
-                        if ui.add_enabled(self.worker.is_some(),egui::Button::new("Interrompi").min_size(Vec2::new(110.0,40.0))).clicked(){self.stop();}
+                ui.horizontal(|ui| {
+                    ui.heading(RichText::new("REA-FS").size(25.0));
+                    ui.label("Banco prove");
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if ui.add_enabled(!self.loading,egui::Button::new("Ricarica piano")).clicked(){self.load(&ctx);}
                     });
-                    if self.worker.is_some() && task.adapter != "plain" && ui.button("Conferma azione manuale").clicked() {
-                        if let Some(tx)=&self.controls {let _=tx.send("confirm".into());}
-                    }
-                    if self.worker.is_some() && task.adapter != "plain" {ui.small("La conferma manuale resta distinta dagli eventi del sensore.");}
                 });
-            });
-            ui.add_space(16.0);ui.separator();
-            if self.pending.is_some(){ui.colored_label(Color32::from_rgb(143,85,8),"Il piano è cambiato: la prova attiva conserva la revisione iniziale.");}
-            if !self.state.run_directory.is_empty(){
-                ui.small(format!("Log privati: {}",self.state.run_directory));
-                if self.worker.is_none() {
-                    ui.strong("Prossimo passo");
-                    ui.label(if self.state.next_steps.is_empty(){"Torna al tuo agente: chiedigli di leggere i log e continuare dal checkpoint."}else{&self.state.next_steps});
-                    if ui.button("Copia messaggio per l’agente").clicked() {
-                        ctx.copy_text(format!("Leggi {}/plan.json e {}/events.jsonl, riprendi il checkpoint e continua l’indagine. Distingui simulazione, eventi hardware e azioni dichiarate. Non ripetere la prova senza analizzarne l’esito. Indicazione del piano: {}",self.state.run_directory,self.state.run_directory,self.state.next_steps));
-                    }
-                }
-            }
-            ui.collapsing("Eventi recenti",|ui| {
-                egui::ScrollArea::vertical().max_height(120.0).show(ui,|ui| {for event in self.state.events.iter().rev().take(12){ui.small(event);}});
-            });
-            ui.small("L’icona indica lo stato, non la copertura anatomica del dito.");
+                ui.add_space(12.0);
+                if !self.error.is_empty(){ui.colored_label(Color32::from_rgb(165,38,38),&self.error);}
+                let Some(envelope)=self.plan.clone() else {
+                    ui.heading("L’agente sta preparando la prova");
+                    ui.label("Nessuna azione parte automaticamente.");
+                    ui.monospace(self.session.join("plan.json").display().to_string());
+                    return;
+                };
+                ui.horizontal_top(|ui| {
+                    ui.allocate_ui_with_layout(Vec2::new(245.0,0.0),egui::Layout::top_down(egui::Align::Min),|ui| {
+                        ui.strong("Scegli la prova");
+                        for (index,task) in envelope.plan.experiments.iter().enumerate() {
+                            if ui.add_enabled(self.worker.is_none(),egui::Button::selectable(self.selected==index,&task.title).min_size(Vec2::new(230.0,44.0))).clicked(){self.selected=index;self.state=State::default();}
+                        }
+                        ui.add_space(12.0);
+                        ui.small(&envelope.plan.title);
+                        ui.small(format!("Revisione {}",envelope.plan.revision));
+                        ui.small("L’agente prepara le prove. Tu avvii quella concordata e segui le istruzioni.");
+                    });
+                    ui.add_space(16.0);
+                    ui.vertical(|ui| {
+                        ui.set_width(ui.available_width());
+                        let task=&envelope.plan.experiments[self.selected];
+                        let sim=task.adapter=="simulation";
+                        let accent=if sim{Color32::from_rgb(145,94,18)}else{Color32::from_rgb(23,105,93)};
+                        ui.heading(RichText::new(&task.title).size(24.0));
+                        ui.colored_label(accent,RichText::new(if sim{"Dimostrazione • il lettore non viene usato"}else if task.adapter=="plain"{"Controllo offline • nessuno stato di contatto"}else{"Prova hardware • attendi lo stato osservato"}).strong());
+                        if sim {ui.label("Non appoggiare il dito. I contatti e i rilasci qui sotto sono generati dal programma.");}
+                        ui.add_space(8.0);
+                        ui.vertical_centered(|ui| {
+                            if sim {simulation_visual(ui,&self.state);}
+                            else if task.adapter=="fprintd" {
+                                let color=if self.state.present{accent}else if self.state.needed{Color32::from_rgb(43,104,184)}else{Color32::from_rgb(130,148,160)};
+                                fingerprint(ui,color);
+                                ui.small("Indicatore di contatto, non immagine o mappa del dito.");
+                            }
+                            ui.label(RichText::new(&self.state.status).size(23.0).strong());
+                        });
+                        ui.add_space(8.0);
+                        ui.label(if self.worker.is_some() || !self.state.run_id.is_empty(){&self.state.detail}else{&task.instructions});
+                        if self.state.total>0 {
+                            let unit=if sim{"passaggi simulati"}else{"appoggi"};
+                            ui.add(egui::ProgressBar::new((self.state.completed as f32/self.state.total as f32).min(1.0)).fill(accent).text(format!("{} / {} {}",self.state.completed,self.state.total,unit)));
+                        }
+                        if self.state.active {ui.small(format!("Tempo residuo: {:.0} s",self.state.remaining()));}
+                        else if self.state.run_id.is_empty(){ui.small(format!("Durata massima: {} s",task.timeout_seconds));}
+                        ui.add_space(8.0);
+                        ui.horizontal_wrapped(|ui| {
+                            if ui.add_enabled(self.worker.is_none() && self.error.is_empty(),egui::Button::new(RichText::new(if sim{"Avvia dimostrazione"}else{"Esegui la prova"}).color(Color32::WHITE).strong()).fill(accent).min_size(Vec2::new(170.0,44.0))).clicked(){self.start(&ctx);}
+                            if ui.add_enabled(self.worker.is_some(),egui::Button::new("Interrompi").min_size(Vec2::new(110.0,44.0))).clicked(){self.stop();}
+                        });
+                        if self.worker.is_some() && task.adapter=="fprintd" && ui.button("Registra conferma manuale").clicked(){if let Some(tx)=&self.controls {let _=tx.send("confirm".into());}}
+                        ui.add_space(8.0);
+                        ui.collapsing("Comando e dettagli della prova", |ui| {
+                            let command=task.argv.iter().map(|a|shell_quote(a)).collect::<Vec<_>>().join(" ");
+                            ui.monospace(&command);
+                            ui.small(self.root.join(&task.cwd).display().to_string());
+                            ui.small(format!("Categoria: {}",task.category));
+                            if task.raw_log{ui.small("Anche stdout e stderr vengono salvati nei log privati.");}
+                            if ui.button("Copia comando").clicked(){ctx.copy_text(command);self.copy_requested=Some(Instant::now());}
+                        });
+                    });
+                });
+                ui.add_space(16.0);
+                ui.separator();
+                if self.pending.is_some(){ui.colored_label(Color32::from_rgb(143,85,8),"Piano aggiornato: la prova attiva conserva la revisione iniziale.");}
+                if !self.state.run_directory.is_empty() && self.worker.is_none(){
+                    ui.strong("Risultato salvato • l’agente può continuare");
+                    ui.label(if self.state.next_steps.is_empty(){"L’agente può leggere i file della sessione. Non serve copiare l’output."}else{&self.state.next_steps});
+                    ui.small(format!("Riepilogo: {}/summary.json",self.state.run_directory));
+                    if ui.button("Copia messaggio per l’agente").clicked(){ctx.copy_text(format!("Leggi {}/handoff.txt e riprendi dai log privati della prova.",self.state.run_directory));self.copy_requested=Some(Instant::now());}
+                } else {ui.small("Log salvati automaticamente. Nessuna copia manuale necessaria per l’agente che legge questa cartella.");}
+                if self.copy_requested.is_some_and(|time|time.elapsed()<Duration::from_secs(3)){ui.small("Testo inviato agli appunti.");}
+                ui.collapsing("Log e informazioni per l’agente",|ui| {
+                    ui.monospace(self.session.join("latest-run.json").display().to_string());
+                    if !self.state.run_directory.is_empty(){ui.monospace(&self.state.run_directory);}
+                    for event in self.state.events.iter().rev().take(8){ui.small(event);}
+                    ui.small(format!("Piano: {}",envelope.plan.plan_id));
+                });
             });
         });
     }
@@ -339,8 +401,8 @@ fn main() -> eframe::Result {
     };
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
-            .with_inner_size([860.0, 600.0])
-            .with_min_inner_size([760.0, 550.0]),
+            .with_inner_size([940.0, 710.0])
+            .with_min_inner_size([820.0, 620.0]),
         ..Default::default()
     };
     eframe::run_native(
@@ -354,6 +416,52 @@ fn main() -> eframe::Result {
 mod plan_watch_tests {
     use super::*;
     #[test]
+    fn new_plan_clears_previous_run_for_immediate_and_deferred_updates() {
+        for mode in 0..3 {
+            let (tx, rx) = mpsc::sync_channel(128);
+            let mut panel = Panel {
+                root: PathBuf::new(),
+                session: PathBuf::new(),
+                plan: None,
+                pending: None,
+                selected: 0,
+                state: State::default(),
+                error: String::new(),
+                tx,
+                rx,
+                controls: None,
+                worker: None,
+                loading: false,
+                last_poll: Instant::now(),
+                plan_contents: None,
+                closing: false,
+                copy_requested: None,
+            };
+            panel.state.run_id = "old-simulation".into();
+            panel.state.simulation = true;
+            panel.state.run_directory = "old-log".into();
+            let envelope:Envelope=serde_json::from_value(serde_json::json!({"fingerprint":"new","plan":{"plan_id":"new","title":"Hardware","revision":2,"experiments":[]}})).unwrap();
+            if mode == 1 {
+                panel.pending = Some(envelope);
+                panel.tx.send(Message::Exited).unwrap();
+            } else if mode == 2 {
+                // Error has closed controls, but cleanup has not sent Exited yet.
+                panel.worker=Some(std::thread::spawn(||{}));
+                panel.tx.send(Message::Plan(Ok(envelope))).unwrap();
+                panel.process(&egui::Context::default());
+                assert!(panel.pending.is_some());
+                assert_eq!(panel.state.run_id,"old-simulation");
+                panel.tx.send(Message::Exited).unwrap();
+            } else {
+                panel.tx.send(Message::Plan(Ok(envelope))).unwrap();
+            }
+            panel.process(&egui::Context::default());
+            assert!(panel.state.run_id.is_empty());
+            assert!(panel.state.run_directory.is_empty());
+            assert!(!panel.state.simulation);
+        }
+    }
+    #[test]
     fn reads_are_bounded_and_detect_content_changes() {
         let directory = std::env::temp_dir().join(format!("rea-fs-watch-{}", std::process::id()));
         std::fs::create_dir(&directory).unwrap();
@@ -365,7 +473,10 @@ mod plan_watch_tests {
         std::fs::write(&path, b"other").unwrap();
         assert_ne!(first, read_plan_contents(&directory));
         std::fs::write(&path, vec![b'x'; 300_000]).unwrap();
-        assert_eq!(read_plan_contents(&directory).unwrap().len(), 256 * 1024 + 1);
+        assert_eq!(
+            read_plan_contents(&directory).unwrap().len(),
+            256 * 1024 + 1
+        );
         std::fs::remove_dir_all(directory).unwrap();
     }
 }
