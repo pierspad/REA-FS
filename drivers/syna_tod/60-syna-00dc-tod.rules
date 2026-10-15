@@ -1,0 +1,3 @@
+# Udev rules for Synaptics 06cb:00dc on Acer Aspire A514-54
+ACTION=="add|change", SUBSYSTEM=="usb", ATTRS{idVendor}=="06cb", ATTRS{idProduct}=="00dc", ATTRS{dev}=="*", TEST=="power/control", ATTR{power/control}="auto", MODE="0660", GROUP="input", TAG+="uaccess"
+ACTION=="add|change", SUBSYSTEM=="usb", ATTRS{idVendor}=="06cb", ATTRS{idProduct}=="00dc", ENV{LIBFPRINT_DRIVER}="syna_00dc_tod"

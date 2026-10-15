@@ -75,3 +75,8 @@ Testing/
 # Python analysis tools
 __pycache__/
 *.pyc
+
+# Local credentials and private pairing keys (do NOT track)
+*.pem
+/drivers/syna_tod/credentials/
+/drivers/**/build/
