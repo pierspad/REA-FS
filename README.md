@@ -15,13 +15,22 @@ cd REA-FS
 
 Per leggere il progetto non servono account freedesktop, chiavi SSH o privilegi amministrativi. Gli accessi per contribuire si preparano quando servono: [repository, identità e destinazioni](docs/repositories.md).
 
-## Pannello locale opzionale
+## Cosa deve fare chi clona la repository
 
-```sh
-python scripts/open-panel.py
-```
+1. Apri la cartella con il tuo agente e inviagli il messaggio qui sopra. L’agente identifica il **tuo** lettore e controlla supporto, prerequisiti e checkpoint.
+2. Lascia che prepari l’esperimento e ti spieghi il suo scopo. Non installare il driver Synaptics dell’esempio su un lettore non identificato.
+3. Quando l’agente ti indica una prova nel pannello, aprilo dalla radice:
 
-La finestra egui legge un piano locale scritto dall’agente, mostra istruzioni e comandi e avvia soltanto la prova scelta con **Esegui**. Include stato di contatto quando disponibile, countdown, progressi, Interrompi e log privati leggibili dall’agente. Al primo avvio propone una simulazione dichiarata e controlli offline; serve Rust/Cargo per compilare. [Guida al pannello](docs/experiment-panel.md).
+   ```sh
+   python3 scripts/open-panel.py
+   ```
+
+4. Per controllare solo l’interfaccia, seleziona **Prova il pannello** a sinistra, verifica il titolo a destra e premi **Esegui: Prova il pannello**. Dura circa 8 secondi: non devi appoggiare il dito, gli stati sono simulati. «Controlla l’ambiente» raccoglie metadati; «Esegui test e build» esegue verifiche offline. Queste due prove non animano il contatto dell’impronta.
+5. A fine prova premi **Copia messaggio per l’agente**, incollalo nella chat e chiedigli di continuare. L’agente legge piano eseguito, log privati ed esito; prepara poi il prossimo passo. Se può osservare i file durante l’esecuzione, può farlo senza aspettare il messaggio.
+
+Il pannello è opzionale: l’agente può usare il terminale. La finestra è Rust/egui, mentre il supervisore usa Python con libreria standard. La prima compilazione richiede Rust/Cargo, un compilatore C e le dipendenze grafiche; non esiste ancora un binario pubblico pronto da scaricare. [Prerequisiti, comandi e protocollo](docs/experiment-panel.md).
+
+I comandi preparati dall’agente si avviano già con un clic, senza ricopiarli nel terminale. La GUI mostra comando e directory, gestisce Interrompi e salva log privati. Per prove hardware segui soltanto le istruzioni della prova selezionata: il sensore non viene aperto dal piano iniziale. L’agente prepara un piano diverso quando serve.
 
 ## Cosa è disponibile
 
@@ -42,6 +51,7 @@ Il prototipo Synaptics usa credenziali e dati OEM privati **assenti da un clone 
 - [Guida completa al processo](docs/how-it-works.md): hardware, protocollo, immagini, matching, desktop e aspetti legali.
 - [Relinking e strada verso upstream](docs/relinking-and-upstream.md): confronto concreto con synaTudor, prove mancanti e decisioni.
 - [Audit e preparazione dei contributi](docs/audit-2026-10-15.md): cosa funziona, cosa manca e destinazione delle patch.
+- [Calibrazione, appoggi e percorso imaging upstream](docs/image-quality-and-enrollment.md): evidenze, lacune e prove da misurare.
 - [Driver Synaptics: uso e limiti](docs/driver-installation.md).
 - [Ricerca Synaptics](docs/research-06cb-00dc.md), [progetto del driver](docs/design-06cb-00dc-driver.md) e [handover](docs/agent-handover.md): contesto storico, da leggere rispettando le correzioni successive.
 - [Modello per una nuova indagine](docs/templates/investigation.md).
