@@ -1,108 +1,68 @@
 #!/usr/bin/env python3
-"""
-setup-tod-credentials.py
-
-Extracts pairing credentials and OEM initialization blobs for Synaptics 06cb:00dc
-and installs them into /var/lib/fprint/syna_00dc/ (or a custom directory) with secure permissions.
-"""
-
-import os
-import sys
+"""Export existing private 06cb:00dc session material; does not pair a new device."""
 import argparse
-import shutil
+import os
 from pathlib import Path
+import sys
+
+
+def bounded_read(path, expected=None):
+    with path.open('rb') as stream:
+        data = stream.read(1024 * 1024 + 1)
+    if not data or len(data) > 1024 * 1024:
+        raise ValueError(f'invalid file size: {path.name}')
+    if expected is not None and len(data) != expected:
+        raise ValueError(f'unexpected size: {path.name} ({len(data)}, expected {expected})')
+    return data
+
 
 def extract_credentials(session_dir: Path, out_dir: Path):
-    pairing_dir = session_dir / "pairing-candidate"
-    artifacts_dir = session_dir / "artifacts"
-
-    if not pairing_dir.is_dir() or not artifacts_dir.is_dir():
-        print(f"Error: Could not find required session subdirectories in {session_dir}", file=sys.stderr)
+    created = []
+    made_directory = False
+    try:
+        if out_dir.exists() or out_dir.is_symlink():
+            raise ValueError('destination already exists; use a new private directory')
+        pairing = session_dir/'pairing-candidate'
+        artifacts = session_dir/'artifacts'
+        key = bounded_read(pairing/'host-key.pem')
+        if b'PRIVATE KEY-----' not in key:
+            raise ValueError('host key has no PEM private-key marker')
+        reply_path = pairing/'ownership-atomic-oem-reply.bin'
+        if not reply_path.exists(): reply_path = pairing/'ownership-reply.bin'
+        reply = bounded_read(reply_path)
+        if len(reply) < 190: raise ValueError('ownership reply too short')
+        material = bounded_read(pairing/'public-material-after-ownership.bin', 926)
+        point = b'\x04' + material[534:566][::-1] + material[602:634][::-1]
+        files = {
+            'host_key.pem': key,
+            'host_cert.bin': reply[6:190],
+            'server_ecdh_pub.bin': point,
+            'capture_init.bin': bounded_read(artifacts/'acer-capture-init-rom6-20-group2.bin', 4676),
+            'capture_packet.bin': bounded_read(artifacts/'type2449-raw-capture-request.bin', 1917),
+        }
+        # Validate all sources before creating the destination. Never replace credentials.
+        out_dir.mkdir(mode=0o700)
+        made_directory = True
+        for name, data in files.items():
+            target = out_dir/name
+            fd = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            created.append(target)
+            with os.fdopen(fd, 'wb') as stream: stream.write(data)
+        print(f'Exported five private files to {out_dir}; key validity and sensor identity must be checked separately.')
+        return True
+    except (OSError, ValueError) as exc:
+        for target in created: target.unlink(missing_ok=True)
+        if made_directory: out_dir.rmdir()
+        print(f'Error: {exc}', file=sys.stderr)
         return False
 
-    out_dir.mkdir(parents=True, exist_ok=True)
-    os.chmod(out_dir, 0o700)
-
-    # 1. host_key.pem
-    host_key_path = pairing_dir / "host-key.pem"
-    if not host_key_path.exists():
-        print(f"Error: {host_key_path} not found", file=sys.stderr)
-        return False
-    dst_key = out_dir / "host_key.pem"
-    shutil.copyfile(host_key_path, dst_key)
-    dst_key.chmod(0o600)
-    print(f"  [+] Installed {dst_key.name} ({dst_key.stat().st_size} bytes)")
-
-    # 2. host_cert.bin (184 bytes at offset 6 in ownership-atomic-oem-reply.bin)
-    reply_path = pairing_dir / "ownership-atomic-oem-reply.bin"
-    if not reply_path.exists():
-        reply_path = pairing_dir / "ownership-reply.bin"
-    if not reply_path.exists():
-        print(f"Error: ownership reply not found in {pairing_dir}", file=sys.stderr)
-        return False
-    
-    reply_data = reply_path.read_bytes()
-    if len(reply_data) < 190:
-        print(f"Error: ownership reply too short ({len(reply_data)} bytes)", file=sys.stderr)
-        return False
-    cert_data = reply_data[6:190]
-    dst_cert = out_dir / "host_cert.bin"
-    dst_cert.write_bytes(cert_data)
-    dst_cert.chmod(0o600)
-    print(f"  [+] Installed {dst_cert.name} ({len(cert_data)} bytes)")
-
-    # 3. server_ecdh_pub.bin (65-byte uncompressed SEC1 key from public-material-after-ownership.bin)
-    mat_path = pairing_dir / "public-material-after-ownership.bin"
-    if not mat_path.exists():
-        print(f"Error: {mat_path} not found", file=sys.stderr)
-        return False
-    mat_data = mat_path.read_bytes()
-    if len(mat_data) != 926:
-        print(f"Error: Unexpected length for public material ({len(mat_data)} bytes)", file=sys.stderr)
-        return False
-    ecdh_offset = 526
-    x_le = mat_data[ecdh_offset + 8 : ecdh_offset + 40]
-    y_le = mat_data[ecdh_offset + 76 : ecdh_offset + 108]
-    sec1_pub = b"\x04" + bytes(reversed(x_le)) + bytes(reversed(y_le))
-    dst_ecdh = out_dir / "server_ecdh_pub.bin"
-    dst_ecdh.write_bytes(sec1_pub)
-    dst_ecdh.chmod(0o600)
-    print(f"  [+] Installed {dst_ecdh.name} ({len(sec1_pub)} bytes)")
-
-    # 4. capture_init.bin
-    init_blob_path = artifacts_dir / "acer-capture-init-rom6-20-group2.bin"
-    if not init_blob_path.exists():
-        print(f"Error: {init_blob_path} not found", file=sys.stderr)
-        return False
-    dst_init = out_dir / "capture_init.bin"
-    shutil.copyfile(init_blob_path, dst_init)
-    dst_init.chmod(0o600)
-    print(f"  [+] Installed {dst_init.name} ({dst_init.stat().st_size} bytes)")
-
-    # 5. capture_packet.bin
-    pkt_path = artifacts_dir / "type2449-raw-capture-request.bin"
-    if not pkt_path.exists():
-        print(f"Error: {pkt_path} not found", file=sys.stderr)
-        return False
-    dst_pkt = out_dir / "capture_packet.bin"
-    shutil.copyfile(pkt_path, dst_pkt)
-    dst_pkt.chmod(0o600)
-    print(f"  [+] Installed {dst_pkt.name} ({dst_pkt.stat().st_size} bytes)")
-
-    print(f"Successfully configured Synaptics TOD credentials in {out_dir}")
-    return True
 
 def main():
-    parser = argparse.ArgumentParser(description="Install Synaptics 06cb:00dc pairing credentials for libfprint-tod")
-    parser.add_argument("--session-dir", type=Path, default=Path(__file__).resolve().parent.parent / "sessions/2026-10-15-synaptics-06cb-00dc",
-                        help="Session directory containing pairing candidate and artifacts")
-    parser.add_argument("--out-dir", type=Path, default=Path("/var/lib/fprint/syna_00dc"),
-                        help="Target directory (default: /var/lib/fprint/syna_00dc)")
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--session-dir', type=Path, required=True)
+    parser.add_argument('--out-dir', type=Path, required=True)
     args = parser.parse_args()
+    return 0 if extract_credentials(args.session_dir, args.out_dir) else 1
 
-    print(f"Configuring credentials from {args.session_dir} to {args.out_dir}...")
-    success = extract_credentials(args.session_dir, args.out_dir)
-    sys.exit(0 if success else 1)
-
-if __name__ == "__main__":
-    main()
+if __name__ == '__main__':
+    sys.exit(main())
