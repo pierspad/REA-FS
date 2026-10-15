@@ -29,6 +29,10 @@ struct _FpiDeviceSyna00dc
     gboolean is_cancelling;
     gboolean capture_pipeline_ready;
 
+    /* Calibrated empty sensor baseline (56x144 floats) */
+    float *baseline;
+    gboolean has_baseline;
+
     /* Enrolled templates stored locally */
     GPtrArray *enrolled_templates;
 };

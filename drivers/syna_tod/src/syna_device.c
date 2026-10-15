@@ -23,6 +23,8 @@ fpi_device_syna_00dc_init (FpiDeviceSyna00dc *self)
     self->is_open = FALSE;
     self->is_cancelling = FALSE;
     self->capture_pipeline_ready = FALSE;
+    self->baseline = NULL;
+    self->has_baseline = FALSE;
     self->enrolled_templates = g_ptr_array_new_with_free_func (g_free);
 }
 
@@ -35,11 +37,19 @@ fpi_device_syna_00dc_finalize (GObject *object)
         g_ptr_array_unref (self->enrolled_templates);
         self->enrolled_templates = NULL;
     }
+    if (self->baseline) {
+        g_free (self->baseline);
+        self->baseline = NULL;
+    }
     syna_tls_free (&self->tls);
     syna_oem_free (&self->oem);
 
     G_OBJECT_CLASS (fpi_device_syna_00dc_parent_class)->finalize (object);
 }
+
+/* Forward declarations */
+static gboolean
+syna_read_full_frame (GUsbDevice *usb_device, uint8_t *frame_buf, GCancellable *cancellable, GError **error);
 
 /* Helper to execute a synchronous USB bulk exchange */
 static gboolean
@@ -130,6 +140,73 @@ syna_prepare_capture_pipeline (FpiDeviceSyna00dc *self, GCancellable *cancellabl
     return init_ok;
 }
 
+/* Helper to calibrate empty sensor baseline upon device open */
+static gboolean
+syna_calibrate_baseline (FpiDeviceSyna00dc *self, GCancellable *cancellable, GError **error)
+{
+    /* Start capture stream to measure clean baseline */
+    uint8_t cap_resp[4096];
+    size_t cap_resp_len = 0;
+    if (!syna_tls_app_exchange (self, self->oem.capture_packet, self->oem.capture_packet_len,
+                                cap_resp, sizeof (cap_resp), &cap_resp_len, cancellable, error)) {
+        return FALSE;
+    }
+
+    if (!self->baseline) {
+        self->baseline = g_malloc0 (SYNA_OUTPUT_ROWS * SYNA_SAMPLE_BYTES * sizeof (float));
+    } else {
+        memset (self->baseline, 0, SYNA_OUTPUT_ROWS * SYNA_SAMPLE_BYTES * sizeof (float));
+    }
+
+    uint8_t frame_buf[SYNA_FRAME_BYTES];
+    int base_count = 0;
+    while (base_count < 20) {
+        if (!syna_read_full_frame (self->usb_device, frame_buf, cancellable, error)) {
+            break;
+        }
+
+        if (syna_validate_frame (frame_buf, NULL) == 0) {
+            uint8_t dec[SYNA_OUTPUT_ROWS * SYNA_SAMPLE_BYTES];
+            syna_decode_frame_mode2 (frame_buf, NULL, dec);
+            for (size_t i = 0; i < sizeof (dec); i++) {
+                self->baseline[i] += (float)dec[i];
+            }
+            base_count++;
+        }
+    }
+
+    /* Send stop command 0x04 */
+    uint8_t stop_cmd = SYNA_CMD_STOP;
+    uint8_t stop_resp[64];
+    size_t stop_resp_len = 0;
+    syna_tls_app_exchange (self, &stop_cmd, 1, stop_resp, sizeof (stop_resp), &stop_resp_len, NULL, NULL);
+
+    /* Drain bulk EP 130 */
+    uint8_t drain_buf[16384];
+    gsize drained = 0;
+    for (int d = 0; d < 10; d++) {
+        if (!g_usb_device_bulk_transfer (self->usb_device, SYNA_EP_DATA_IN,
+                                         drain_buf, sizeof (drain_buf),
+                                         &drained, 25, NULL, NULL) || drained == 0) {
+            break;
+        }
+    }
+
+    self->capture_pipeline_ready = FALSE;
+
+    if (base_count < 10) {
+        g_set_error_literal (error, G_IO_ERROR, G_IO_ERROR_FAILED, "Failed to read baseline frames from sensor");
+        return FALSE;
+    }
+
+    for (size_t i = 0; i < SYNA_OUTPUT_ROWS * SYNA_SAMPLE_BYTES; i++) {
+        self->baseline[i] /= (float)base_count;
+    }
+    self->has_baseline = TRUE;
+
+    return TRUE;
+}
+
 /* Background thread for OPEN */
 static void
 syna_open_thread (GTask *task, gpointer source_object, gpointer task_data, GCancellable *cancellable)
@@ -211,6 +288,13 @@ syna_open_thread (GTask *task, gpointer source_object, gpointer task_data, GCanc
 
     /* 3. Prepare capture pipeline (0x1a cleanup + 0x06 init) */
     if (!syna_prepare_capture_pipeline (self, cancellable, &error)) {
+        g_usb_device_release_interface (self->usb_device, 0, G_USB_DEVICE_CLAIM_INTERFACE_NONE, NULL);
+        g_task_return_error (task, error);
+        return;
+    }
+
+    /* 4. Calibrate clean empty sensor baseline */
+    if (!syna_calibrate_baseline (self, cancellable, &error)) {
         g_usb_device_release_interface (self->usb_device, 0, G_USB_DEVICE_CLAIM_INTERFACE_NONE, NULL);
         g_task_return_error (task, error);
         return;
@@ -318,14 +402,21 @@ syna_read_full_frame (GUsbDevice *usb_device, uint8_t *frame_buf, GCancellable *
 static float *
 syna_capture_finger_sample (FpiDeviceSyna00dc *self, GCancellable *cancellable, GError **error)
 {
-    /* 1. Ensure capture pipeline is initialized with OEM initializer */
+    /* 1. Ensure clean baseline is available */
+    if (!self->has_baseline) {
+        if (!syna_calibrate_baseline (self, cancellable, error)) {
+            return NULL;
+        }
+    }
+
+    /* 2. Ensure capture pipeline is initialized with OEM initializer */
     if (!self->capture_pipeline_ready) {
         if (!syna_prepare_capture_pipeline (self, cancellable, error)) {
             return NULL;
         }
     }
 
-    /* 2. Send capture command 0x02 + packet */
+    /* 3. Send capture command 0x02 + packet */
     uint8_t cap_resp[4096];
     size_t cap_resp_len = 0;
     if (!syna_tls_app_exchange (self, self->oem.capture_packet, self->oem.capture_packet_len,
@@ -333,43 +424,17 @@ syna_capture_finger_sample (FpiDeviceSyna00dc *self, GCancellable *cancellable, 
         return NULL;
     }
 
-    /* 3. Stream frames from EP 130 */
-    uint8_t frame_buf[SYNA_FRAME_BYTES];
-    float *baseline = g_malloc0 (SYNA_OUTPUT_ROWS * SYNA_SAMPLE_BYTES * sizeof (float));
-    float *accumulated_contact = g_malloc0 (SYNA_OUTPUT_ROWS * SYNA_SAMPLE_BYTES * sizeof (float));
-
-    /* First 20 frames: compute baseline */
-    int base_count = 0;
-    while (base_count < 20) {
-        if (!syna_read_full_frame (self->usb_device, frame_buf, cancellable, error)) {
-            g_free (baseline);
-            g_free (accumulated_contact);
-            return NULL;
-        }
-
-        if (syna_validate_frame (frame_buf, NULL) == 0) {
-            uint8_t dec[SYNA_OUTPUT_ROWS * SYNA_SAMPLE_BYTES];
-            syna_decode_frame_mode2 (frame_buf, NULL, dec);
-            for (size_t i = 0; i < sizeof (dec); i++) {
-                baseline[i] += (float)dec[i];
-            }
-            base_count++;
-        }
-    }
-
-    for (size_t i = 0; i < SYNA_OUTPUT_ROWS * SYNA_SAMPLE_BYTES; i++) {
-        baseline[i] /= 20.0f;
-    }
-
-    /* Report waiting for finger */
+    /* 4. Report waiting for finger IMMEDIATELY before reading */
     fpi_device_report_finger_status_changes (FP_DEVICE (self), FP_FINGER_STATUS_NEEDED, FP_FINGER_STATUS_NONE);
 
-    /* Wait for finger touch (RMS jump > 15.0) */
+    /* 5. Stream frames and wait for finger touch */
+    uint8_t frame_buf[SYNA_FRAME_BYTES];
+    float *accumulated_contact = g_malloc0 (SYNA_OUTPUT_ROWS * SYNA_SAMPLE_BYTES * sizeof (float));
     gboolean finger_detected = FALSE;
     int contact_frames = 0;
     int idle_frames = 0;
 
-    while (contact_frames < 30) { /* accumulate ~30 contact frames (~0.7s) */
+    while (contact_frames < 25) { /* collect 25 biometric frames (~0.4s) */
         if (g_cancellable_is_cancelled (cancellable)) {
             g_set_error_literal (error, G_IO_ERROR, G_IO_ERROR_CANCELLED, "Capture cancelled");
             break;
@@ -383,10 +448,10 @@ syna_capture_finger_sample (FpiDeviceSyna00dc *self, GCancellable *cancellable, 
             uint8_t dec[SYNA_OUTPUT_ROWS * SYNA_SAMPLE_BYTES];
             syna_decode_frame_mode2 (frame_buf, NULL, dec);
 
-            /* Calculate RMS difference against baseline */
+            /* Calculate RMS difference against calibrated empty baseline */
             float sum_sq = 0.0f;
             for (size_t i = 0; i < sizeof (dec); i++) {
-                float diff = (float)dec[i] - baseline[i];
+                float diff = (float)dec[i] - self->baseline[i];
                 sum_sq += diff * diff;
             }
             float rms = sqrtf (sum_sq / (float)(sizeof (dec)));
@@ -397,7 +462,7 @@ syna_capture_finger_sample (FpiDeviceSyna00dc *self, GCancellable *cancellable, 
                     fpi_device_report_finger_status_changes (FP_DEVICE (self), FP_FINGER_STATUS_PRESENT, FP_FINGER_STATUS_NEEDED);
                 }
                 for (size_t i = 0; i < sizeof (dec); i++) {
-                    accumulated_contact[i] += (float)dec[i] - baseline[i];
+                    accumulated_contact[i] += (float)dec[i] - self->baseline[i];
                 }
                 contact_frames++;
             } else if (finger_detected && contact_frames >= 10) {
@@ -414,9 +479,13 @@ syna_capture_finger_sample (FpiDeviceSyna00dc *self, GCancellable *cancellable, 
         }
     }
 
-    fpi_device_report_finger_status_changes (FP_DEVICE (self), FP_FINGER_STATUS_NONE, FP_FINGER_STATUS_PRESENT | FP_FINGER_STATUS_NEEDED);
+    if (finger_detected && contact_frames >= 25) {
+        fpi_device_report_finger_status_changes (FP_DEVICE (self), FP_FINGER_STATUS_NONE, FP_FINGER_STATUS_PRESENT);
+    } else if (!finger_detected) {
+        fpi_device_report_finger_status_changes (FP_DEVICE (self), FP_FINGER_STATUS_NONE, FP_FINGER_STATUS_NEEDED);
+    }
 
-    /* Send stop command 0x04 */
+    /* 6. Send stop command 0x04 */
     uint8_t stop_cmd = SYNA_CMD_STOP;
     uint8_t stop_resp[64];
     size_t stop_resp_len = 0;
@@ -435,8 +504,6 @@ syna_capture_finger_sample (FpiDeviceSyna00dc *self, GCancellable *cancellable, 
 
     /* Next capture cycle will require re-initializing the capture pipeline */
     self->capture_pipeline_ready = FALSE;
-
-    g_free (baseline);
 
     if (contact_frames < 10) {
         g_free (accumulated_contact);
