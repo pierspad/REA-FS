@@ -106,12 +106,85 @@ static void test_uncorrelated_rejection(void)
     printf("  [PASS] test_uncorrelated_rejection\n");
 }
 
+static void rotate_test_image(const float *in, float deg, float *out)
+{
+    float rad = deg * (float)M_PI / 180.0f;
+    float cos_t = cosf(rad);
+    float sin_t = sinf(rad);
+    float cy = (float)(H - 1) * 0.5f;
+    float cx = (float)(W - 1) * 0.5f;
+
+    for (int r = 0; r < H; r++) {
+        float yr = (float)r - cy;
+        for (int c = 0; c < W; c++) {
+            float xc = (float)c - cx;
+            float ys = cy + yr * cos_t - xc * sin_t;
+            float xs = cx + yr * sin_t + xc * cos_t;
+
+            int iy = (int)roundf(ys);
+            int ix = (int)roundf(xs);
+
+            if (iy >= 0 && iy < H && ix >= 0 && ix < W) {
+                out[r * W + c] = in[iy * W + ix];
+            } else {
+                out[r * W + c] = 0.0f;
+            }
+        }
+    }
+}
+
+static void test_odd_rotations(void)
+{
+    float img_orig[H * W];
+    for (int r = 0; r < H; r++) {
+        for (int c = 0; c < W; c++) {
+            float phase = 2.0f * (float)M_PI * (0.15f * (float)c + 0.08f * (float)r + 0.0003f * (float)(r * c));
+            img_orig[r * W + c] = sinf(phase) + 0.5f * cosf(2.0f * (float)M_PI * 0.12f * (float)r);
+        }
+    }
+
+    float filt_orig[H * W];
+    assert(syna_bandpass_filter(img_orig, filt_orig) == 0);
+
+    /* Test +7 degrees */
+    {
+        float img_rot[H * W];
+        rotate_test_image(img_orig, -7.0f, img_rot);
+        float filt_rot[H * W];
+        assert(syna_bandpass_filter(img_rot, filt_rot) == 0);
+
+        SynaMatchResult res;
+        assert(syna_match_images(filt_orig, filt_rot, 0.60f, &res) == 0);
+        printf("  +7 deg match -> score: %.4f, angle: %.1f deg (expected ~7.0)\n", res.score, res.angle);
+        assert(res.score > 0.85f);
+        assert(fabsf(res.angle - 7.0f) <= 1.0f);
+        assert(syna_is_match(filt_orig, filt_rot) == true);
+    }
+
+    /* Test -13 degrees */
+    {
+        float img_rot[H * W];
+        rotate_test_image(img_orig, 13.0f, img_rot);
+        float filt_rot[H * W];
+        assert(syna_bandpass_filter(img_rot, filt_rot) == 0);
+
+        SynaMatchResult res;
+        assert(syna_match_images(filt_orig, filt_rot, 0.60f, &res) == 0);
+        printf("  -13 deg match -> score: %.4f, angle: %.1f deg (expected ~ -13.0)\n", res.score, res.angle);
+        assert(res.score > 0.85f);
+        assert(fabsf(res.angle - (-13.0f)) <= 1.0f);
+        assert(syna_is_match(filt_orig, filt_rot) == true);
+    }
+    printf("  [PASS] test_odd_rotations (+7 deg and -13 deg)\n");
+}
+
 int main(void)
 {
     printf("Running syna_matcher unit tests...\n");
     test_self_match();
     test_known_shift();
     test_uncorrelated_rejection();
+    test_odd_rotations();
     printf("All syna_matcher unit tests passed!\n");
     return 0;
 }

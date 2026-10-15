@@ -181,6 +181,100 @@ static void rotate_nearest(const float *in, float deg, float *out, float *mask)
     }
 }
 
+static void eval_single_angle(int deg, const float *b, float *br, float *mask,
+                              size_t sz,
+                              Complex *fa, Complex *fa2, Complex *f1,
+                              Complex *fb, Complex *fb2, Complex *fm,
+                              Complex *num, Complex *ov, Complex *ea, Complex *eb,
+                              float min_ov_pixels,
+                              int step_r, int step_c,
+                              SynaMatchResult *res)
+{
+    res->score = -1.0f;
+    res->angle = (float)deg;
+    res->dy = 0;
+    res->dx = 0;
+    res->overlap = 0.0f;
+
+    rotate_nearest(b, (float)deg, br, mask);
+
+    memset(fb, 0, sz);
+    memset(fb2, 0, sz);
+    memset(fm, 0, sz);
+
+    for (int r = 0; r < IMG_H; r++) {
+        for (int c = 0; c < IMG_W; c++) {
+            float v = br[r * IMG_W + c];
+            float m = mask[r * IMG_W + c];
+            fb[r * FFT_W + c].r = v;
+            fb2[r * FFT_W + c].r = v * v;
+            fm[r * FFT_W + c].r = m;
+        }
+    }
+
+    fft2d(fb, FFT_H, FFT_W, 0);
+    fft2d(fb2, FFT_H, FFT_W, 0);
+    fft2d(fm, FFT_H, FFT_W, 0);
+
+    /* Cross-correlations in freq domain */
+    for (int i = 0; i < FFT_H * FFT_W; i++) {
+        num[i].r = fa[i].r * fb[i].r + fa[i].i * fb[i].i;
+        num[i].i = fa[i].i * fb[i].r - fa[i].r * fb[i].i;
+
+        ov[i].r = f1[i].r * fm[i].r + f1[i].i * fm[i].i;
+        ov[i].i = f1[i].i * fm[i].r - f1[i].r * fm[i].i;
+
+        ea[i].r = fa2[i].r * fm[i].r + fa2[i].i * fm[i].i;
+        ea[i].i = fa2[i].i * fm[i].r - fa2[i].r * fm[i].i;
+
+        eb[i].r = f1[i].r * fb2[i].r + f1[i].i * fb2[i].i;
+        eb[i].i = f1[i].i * fb2[i].r - f1[i].r * fb2[i].i;
+    }
+
+    fft2d(num, FFT_H, FFT_W, 1);
+    fft2d(ov, FFT_H, FFT_W, 1);
+    fft2d(ea, FFT_H, FFT_W, 1);
+    fft2d(eb, FFT_H, FFT_W, 1);
+
+    for (int r = 0; r < FFT_H; r += step_r) {
+        for (int c = 0; c < FFT_W; c += step_c) {
+            int idx = r * FFT_W + c;
+            float cur_ov = ov[idx].r;
+            if (cur_ov > min_ov_pixels) {
+                float cur_ea = ea[idx].r;
+                float cur_eb = eb[idx].r;
+                float denom = sqrtf(fmaxf(cur_ea * cur_eb, 1e-9f));
+                float score = num[idx].r / denom;
+
+                if (score > res->score) {
+                    int dy = (r < IMG_H) ? r : (r - FFT_H);
+                    int dx = (c < IMG_W) ? c : (c - FFT_W);
+                    res->score = score;
+                    res->angle = (float)deg;
+                    res->dy = -dy;
+                    res->dx = -dx;
+                    res->overlap = cur_ov / (float)(IMG_H * IMG_W);
+                }
+            }
+        }
+    }
+}
+
+static void insert_peak(SynaMatchResult top_peaks[3], const SynaMatchResult *cand)
+{
+    if (cand->score <= top_peaks[2].score) return;
+    if (cand->score > top_peaks[0].score) {
+        top_peaks[2] = top_peaks[1];
+        top_peaks[1] = top_peaks[0];
+        top_peaks[0] = *cand;
+    } else if (cand->score > top_peaks[1].score) {
+        top_peaks[2] = top_peaks[1];
+        top_peaks[1] = *cand;
+    } else {
+        top_peaks[2] = *cand;
+    }
+}
+
 int syna_match_images(const float *a,
                       const float *b,
                       float min_overlap,
@@ -232,72 +326,56 @@ int syna_match_images(const float *a,
 
     float min_ov_pixels = min_overlap * (float)(IMG_H * IMG_W);
 
-    for (int deg = -30; deg <= 30; deg += 2) {
-        rotate_nearest(b, (float)deg, br, mask);
+    bool evaluated[61] = { false };
+    SynaMatchResult top_peaks[3];
+    for (int k = 0; k < 3; k++) {
+        top_peaks[k].score = -1.0f;
+        top_peaks[k].angle = 0.0f;
+        top_peaks[k].dy = 0;
+        top_peaks[k].dx = 0;
+        top_peaks[k].overlap = 0.0f;
+    }
 
-        memset(fb, 0, sz);
-        memset(fb2, 0, sz);
-        memset(fm, 0, sz);
+    /* Phase 1: Coarse search (step 4 deg, step 2 px in translation) */
+    for (int deg = -30; deg <= 30; deg += 4) {
+        evaluated[deg + 30] = true;
+        SynaMatchResult cur_res;
+        eval_single_angle(deg, b, br, mask, sz,
+                          fa, fa2, f1, fb, fb2, fm,
+                          num, ov, ea, eb,
+                          min_ov_pixels, 2, 2, &cur_res);
 
-        for (int r = 0; r < IMG_H; r++) {
-            for (int c = 0; c < IMG_W; c++) {
-                float v = br[r * IMG_W + c];
-                float m = mask[r * IMG_W + c];
-                fb[r * FFT_W + c].r = v;
-                fb2[r * FFT_W + c].r = v * v;
-                fm[r * FFT_W + c].r = m;
+        if (cur_res.score > -0.5f) {
+            insert_peak(top_peaks, &cur_res);
+        }
+    }
+
+    *result = top_peaks[0];
+
+    /* Phase 2: Fine refinement (step 1 deg, step 1 px around top 3 coarse peaks) */
+    for (int k = 0; k < 3; k++) {
+        if (top_peaks[k].score < 0.20f) continue;
+        int peak_deg = (int)roundf(top_peaks[k].angle);
+
+        for (int d = -3; d <= 3; d++) {
+            int fine_deg = peak_deg + d;
+            if (fine_deg < -30 || fine_deg > 30) continue;
+            if (d != 0 && evaluated[fine_deg + 30]) continue;
+            evaluated[fine_deg + 30] = true;
+
+            SynaMatchResult cur_res;
+            eval_single_angle(fine_deg, b, br, mask, sz,
+                              fa, fa2, f1, fb, fb2, fm,
+                              num, ov, ea, eb,
+                              min_ov_pixels, 1, 1, &cur_res);
+
+            if (cur_res.score > result->score) {
+                *result = cur_res;
             }
         }
 
-        fft2d(fb, FFT_H, FFT_W, 0);
-        fft2d(fb2, FFT_H, FFT_W, 0);
-        fft2d(fm, FFT_H, FFT_W, 0);
-
-        /* Cross-correlations in freq domain */
-        for (int i = 0; i < FFT_H * FFT_W; i++) {
-            /* num = fa * conj(fb) */
-            num[i].r = fa[i].r * fb[i].r + fa[i].i * fb[i].i;
-            num[i].i = fa[i].i * fb[i].r - fa[i].r * fb[i].i;
-
-            /* ov = f1 * conj(fm) */
-            ov[i].r = f1[i].r * fm[i].r + f1[i].i * fm[i].i;
-            ov[i].i = f1[i].i * fm[i].r - f1[i].r * fm[i].i;
-
-            /* ea = fa2 * conj(fm) */
-            ea[i].r = fa2[i].r * fm[i].r + fa2[i].i * fm[i].i;
-            ea[i].i = fa2[i].i * fm[i].r - fa2[i].r * fm[i].i;
-
-            /* eb = f1 * conj(fb2) */
-            eb[i].r = f1[i].r * fb2[i].r + f1[i].i * fb2[i].i;
-            eb[i].i = f1[i].i * fb2[i].r - f1[i].r * fb2[i].i;
-        }
-
-        fft2d(num, FFT_H, FFT_W, 1);
-        fft2d(ov, FFT_H, FFT_W, 1);
-        fft2d(ea, FFT_H, FFT_W, 1);
-        fft2d(eb, FFT_H, FFT_W, 1);
-
-        for (int r = 0; r < FFT_H; r++) {
-            for (int c = 0; c < FFT_W; c++) {
-                int idx = r * FFT_W + c;
-                float cur_ov = ov[idx].r;
-                if (cur_ov > min_ov_pixels) {
-                    float cur_ea = ea[idx].r;
-                    float cur_eb = eb[idx].r;
-                    float denom = sqrtf(fmaxf(cur_ea * cur_eb, 1e-9f));
-                    float score = num[idx].r / denom;
-
-                    if (score > result->score) {
-                        int dy = (r < IMG_H) ? r : (r - FFT_H);
-                        int dx = (c < IMG_W) ? c : (c - FFT_W);
-                        result->score = score;
-                        result->angle = (float)deg;
-                        result->dy = -dy;
-                        result->dx = -dx;
-                        result->overlap = cur_ov / (float)(IMG_H * IMG_W);
-                    }
-                }
-            }
+        if (result->score >= 0.92f) {
+            break;
         }
     }
 
