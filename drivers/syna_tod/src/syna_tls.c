@@ -489,7 +489,7 @@ int syna_tls_decrypt_app_data(SynaTlsContext *ctx,
 
     uint8_t type = in[0];
     uint16_t rec_len = get_u16_be(in + 3);
-    if (in_len < (size_t)(5 + rec_len)) return -2;
+    if (rec_len < 16 + 32 + 16 || in_len != (size_t)(5 + rec_len)) return -2;
 
     const uint8_t *iv = in + 5;
     const uint8_t *cipher = in + 21;
@@ -519,6 +519,12 @@ int syna_tls_decrypt_app_data(SynaTlsContext *ctx,
         return -5;
     }
 
+    for (size_t i = 0; i < pad_count; i++) {
+        if (plain[dec_total - 1 - i] != pad_val) {
+            free(plain);
+            return -5;
+        }
+    }
     size_t content_and_mac = dec_total - pad_count;
     if (content_and_mac < 32) {
         free(plain);

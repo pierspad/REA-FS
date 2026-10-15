@@ -55,6 +55,12 @@ static void test_encrypt_decrypt_roundtrip(void)
     assert(dec_len == 19);
     assert(memcmp(dec, plain, 19) == 0);
 
+    /* A short advertised record must be rejected before subtracting its IV. */
+    uint8_t malformed[128];
+    memcpy(malformed, enc, enc_len);
+    malformed[3] = 0; malformed[4] = 0;
+    assert(syna_tls_decrypt_app_data(&ctx, malformed, enc_len, dec, sizeof(dec), &dec_len) != 0);
+
     /* Test buffer too small condition */
     uint8_t small_dec[10];
     assert(syna_tls_decrypt_app_data(&ctx, enc, enc_len, small_dec, sizeof(small_dec), &dec_len) == -8);
