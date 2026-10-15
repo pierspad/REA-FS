@@ -69,6 +69,7 @@ Verifica offline, senza nuove catture, con `tools/placement_overlap.py` (solo Nu
 - Periodo delle creste stimato ~6,1–6,5 pixel, isotropo. Con una distanza fra creste tipica di circa 0,45–0,5 mm questo è più coerente con ~333 dpi (valore copiato dal codice OEM) che con 500 dpi. Ipotesi, non misura metrologica.
 - Appoggi indipendenti dello stesso dito dichiarato: trial5 contatto1↔contatto2 correlazione 0,94 (traslazione 12,8 px, 0°); trial5↔trial3 0,65 e 0,59 (4°). Le tre trasformazioni sono transitivamente coerenti: (12,8)+(−7,13)=(5,21).
 - Controlli con la stessa sovrapposizione: capovolgimenti 0,06–0,18, rumore con stesso spettro 0,28. Correlazione a spostamento zero fra i contatti −0,03: il risultato non è dominato da pattern fisso del sensore.
+- Prova sincronizzata post-riavvio (trial 7): due appoggi distinti registrati (~12s e ~5s, RMS mediano ~167 vs baseline 4,5). Correlazione sovrapposizione: trial 7 appoggio 1↔appoggio 2 = 0,912 (0,0°); trial 7↔trial 5 (pre-riavvio) = 0,846 (0,0°); trial 7↔trial 3 = 0,643 (2,0°). Controlli invariati < 0,23. Questo dimostra la riproducibilità biometrica del segnale anche tra sessioni separate da spegnimento.
 
 Conclusione provvisoria: la catena decodifica mode 2 + sottrazione baseline produce struttura di cresta ripetibile fra appoggi reali. Il limite osservato con NBIS/Bozorth è compatibile con l’area ridotta (144×56, circa 11×4 mm a 333 dpi) più che con una decodifica errata. Un singolo dito, nessun impostore e nessuna soglia calibrata: **non è una prova di riconoscimento** e non stima FAR/FRR.
 
