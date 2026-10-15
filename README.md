@@ -113,12 +113,14 @@ Le tracce possono contenere dati biometrici. Concorda con l’agente cosa raccog
 
 ## Analisi offline del flusso osservato
 
-`tools/raw_frames.py` legge il formato RAW verificato sul sensore USB 06cb:00dc di questa indagine: righe di 152 byte, 112 righe per frame, coppie adiacenti → 144×56 pixel. Valida intestazioni e contatori; non acquisisce dati dal dispositivo, non applica calibrazione o sottrazione della baseline e non è un driver. Vedi [risultati e limiti](docs/research-06cb-00dc.md).
+`tools/raw_frames.py` legge il formato RAW verificato sul sensore USB 06cb:00dc di questa indagine: righe di 152 byte, 112 righe per frame, coppie adiacenti → 144×56 campioni. Valida intestazioni e contatori; non acquisisce dati dal dispositivo, non applica calibrazione o sottrazione della baseline e non è un driver. Vedi [risultati e limiti](docs/research-06cb-00dc.md).
 
 ```sh
 python tools/raw_frames.py --input sessions/LA_TUA_SESSIONE/capture.bin \
-    --output sessions/LA_TUA_SESSIONE/frame.pgm --frame 0 --allow-partial-tail
+    --output sessions/LA_TUA_SESSIONE/frame.pgm --frame 0 --encoder-mode 2 --allow-partial-tail
 python -m unittest discover -v
 ```
+
+La modalità encoder va verificata nel programma di acquisizione. Per il programma OEM di questa sessione è `2`: espande gruppi di 16 campioni dopo la media delle righe ripetute. Il default `raw` conserva il piano dei campioni codificati, che non equivale a un’immagine dell’impronta. Anche la modalità `2` senza calibrazione è solo diagnostica: la CLI non stima né applica la baseline del sensore.
 
 L’output deve essere un file nuovo: viene creato con permessi 0600. Input massimo 64 MiB. Ometti `--allow-partial-tail` per rifiutare anche una coda incompleta; l’opzione non corregge frame corrotti e non cerca automaticamente l’allineamento. Conserva eventuali immagini biometriche nelle sessioni locali ignorate.

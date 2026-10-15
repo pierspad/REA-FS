@@ -1,7 +1,8 @@
-"""Decode the observed fixed-row USB byte layout into a grayscale PGM.
+"""Decode the observed fixed-row USB layout into a sample plane or mode-2 image.
 
 This module implements only the locally observed framing contract. It does not
-apply calibration, baseline subtraction, denoising, or other image processing.
+apply calibration, baseline subtraction or denoising. Raw sample values are
+not necessarily pixel intensities: select the observed encoder explicitly.
 """
 
 import argparse
@@ -66,9 +67,15 @@ def iter_frames(data: bytes, allow_partial_tail: bool = False) -> Iterator[bytes
         yield frame
 
 
-def decode_frame(frame: bytes) -> list[bytes]:
-    """Return a validated 56-row by 144-column image, averaging adjacent rows."""
+def decode_frame(frame: bytes, encoder_mode: str = "raw") -> list[bytes]:
+    """Average adjacent encoded rows, then optionally expand encoder mode 2."""
     _validate_frame(frame)
+    if encoder_mode not in ("raw", "2"):
+        raise ValueError("encoder_mode must be raw or 2")
+    if __package__:
+        from .encoder_mode2 import decode_row
+    else:
+        from encoder_mode2 import decode_row
     image = []
     for row_index in range(0, ROWS_PER_FRAME, 2):
         first = row_index * ROW_BYTES + HEADER_BYTES
@@ -77,7 +84,7 @@ def decode_frame(frame: bytes) -> list[bytes]:
             frame[first:first + PIXEL_BYTES],
             frame[second:second + PIXEL_BYTES],
         ))
-        image.append(pixels)
+        image.append(decode_row(pixels) if encoder_mode == "2" else pixels)
     return image
 
 
@@ -110,6 +117,8 @@ def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--input", required=True, help="raw observed-layout capture")
     parser.add_argument("--output", required=True, help="new PGM output path")
+    parser.add_argument("--encoder-mode", choices=("raw", "2"), default="raw",
+                        help="raw sample plane (default), or observed mode-2 expansion")
     parser.add_argument("--frame", type=int, default=0, help="zero-based frame index (default: 0)")
     parser.add_argument("--allow-partial-tail", action="store_true",
                         help="ignore trailing bytes after the last complete frame")
@@ -121,7 +130,7 @@ def main(argv=None) -> int:
         frames = list(iter_frames(data, allow_partial_tail=args.allow_partial_tail))
         if args.frame >= len(frames):
             raise ValueError(f"frame index {args.frame} outside {len(frames)} available frame(s)")
-        image = decode_frame(frames[args.frame])
+        image = decode_frame(frames[args.frame], encoder_mode=args.encoder_mode)
         _write_pgm_exclusive(args.output, image)
     except (OSError, ValueError) as exc:
         parser.error(str(exc))

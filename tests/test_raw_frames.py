@@ -64,6 +64,16 @@ class RawFramesTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             raw_frames.decode_frame(bytes(data[:-1]))
 
+    def test_mode2_decodes_after_averaging_encoded_repeats(self):
+        frame = bytearray(make_frame())
+        for row in range(112):
+            start = row * ROW_SIZE + 8
+            frame[start:start + 144] = bytes([120 if row % 2 == 0 else 137]) * 144
+        decoded = raw_frames.decode_frame(bytes(frame), encoder_mode="2")
+        self.assertEqual(decoded, [bytes([128]) * 144] * 56)
+        with self.assertRaises(ValueError):
+            raw_frames.decode_frame(bytes(frame), encoder_mode="unknown")
+
     def test_cli_writes_pgm_exclusively_with_private_permissions(self):
         with tempfile.TemporaryDirectory() as td:
             source, output = Path(td) / "capture.bin", Path(td) / "image.pgm"

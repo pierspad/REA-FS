@@ -2,6 +2,16 @@
 
 Risultati locali del 15 ottobre 2026 su Acer Aspire A514-54, revisione USB 0154. Sono evidenze di un prototipo diagnostico, non supporto disponibile in libfprint. Nessuna modifica al login e nessuna pubblicazione delle acquisizioni.
 
+## Correzione dell’interpretazione delle immagini
+
+**L’analisi successiva ha individuato un passaggio mancante:** il programma di acquisizione seleziona encoder modo 2 (`42`: `02 08 90 00 00 00 00 00`). I campioni non sono direttamente pixel. I conteggi NBIS e i confronti riportati nelle sezioni storiche sotto riguardavano piani ancora codificati: non usarli come misura della qualità dell’impronta. Restano validi autenticazione, contatto, framing, contatori e ordine delle coppie.
+
+Nel percorso OEM per il modulo 0x2449, la media intera delle coppie precede una trasformazione su gruppi di 16 valori. È stata ricostruita dalle funzioni `0x1800b2db0`, `0x1800b50c0`, `0x1800cae50` e `0x1800cb580`: matrice `(2I4−J4) ⊗ (2I4−J4)`, shift aritmetico, bias e clipping. La correzione della baseline avviene prima del clipping. Il codice originale del progetto è in `tools/encoder_mode2.py`; la CLI richiede `--encoder-mode 2`. Nessun codice binario OEM è incluso.
+
+Verifiche: 16 test sintetici superati; confronto esatto con un secondo decoder NumPy su cinque frame reali. Le ricostruzioni aggiornate con baseline stimata localmente producono ancora poche minutiae e non passano il matcher. Baseline OEM effettiva, selezione della regione e densità fisica restano da ricostruire: i valori 333 nella tabella vengono copiati nei metadati immagine, ma la sola copia non stabilisce le unità. Il ricampionamento 1,5× è stato soltanto un’ipotesi diagnostica e non ha risolto il matching.
+
+È stato corretto anche il diagnostico C: `FpImage` lasciava `ppmm=0`; i confronti storici ripetuti con 500dpi espliciti restano 23/40 e 0/40. Questo corregge l’esperimento senza dimostrare che 500dpi siano la densità del sensore.
+
 ## Verificato sul dispositivo
 
 - ROM 6.20 build 154, product interno 0x33. Metadata modulo 0190:a2; tabella OEM: tipo 0x2449, nome 86C TM-P3568-001.

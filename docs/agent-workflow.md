@@ -54,6 +54,8 @@
 - [ ] Controllare separatamente firma OEM, TLS Finished, MAC, status applicativo, arresto acquisizione e close_notify. Chiudere anche sui ritorni anticipati.
 - [ ] Gestire la configurazione rimasta dalla prova precedente prima di reinizializzare. Annotare status esatti e verificare il percorso di pulizia OEM; non dedurre il significato dal solo numero.
 - [ ] Usare nomi unici e creazione esclusiva per le acquisizioni; limitare durata e dimensione, proteggere file e chiavi, conservare i tentativi falliti.
+- [ ] Verificare l’encoder dichiarato dal programma e il ramo OEM che lo decodifica. Un piano di campioni codificati può contenere forme apparentemente simili a creste: aspetto visivo e minutiae estratte non provano una decodifica corretta.
+- [ ] Verificare ordine di media, trasformazione, correzione baseline e clipping; la sottrazione dopo saturazione non recupera l’informazione persa. Impostare esplicitamente densità e flag nei diagnostici NBIS e distinguere ipotesi da metadati verificati.
 - [ ] Distinguere segnale di contatto, immagine ricostruita e riconoscimento: ciascuno richiede una verifica propria.
 
 ## 4. Esperimento e implementazione
