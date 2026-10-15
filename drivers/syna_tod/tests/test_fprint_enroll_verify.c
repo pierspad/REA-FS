@@ -96,6 +96,7 @@ int main(int argc, char **argv)
 
     /* Step 3: Verify */
     g_print("[3/4] VERIFICATION: Testing matching against enrolled finger...\n");
+    g_print("  (Sensor is preparing capture pipeline... please place finger when prompted)\n");
     gboolean is_match = FALSE;
     FpPrint *matched_print = NULL;
     if (!fp_device_verify_sync(dev, enrolled_print, NULL, NULL, NULL,

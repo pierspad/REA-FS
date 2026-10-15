@@ -50,14 +50,18 @@ static void test_encrypt_decrypt_roundtrip(void)
 
     uint8_t dec[128];
     size_t dec_len = 0;
-    assert(syna_tls_decrypt_app_data(&ctx, enc, enc_len, dec, &dec_len) == 0);
+    assert(syna_tls_decrypt_app_data(&ctx, enc, enc_len, dec, sizeof(dec), &dec_len) == 0);
 
     assert(dec_len == 19);
     assert(memcmp(dec, plain, 19) == 0);
 
+    /* Test buffer too small condition */
+    uint8_t small_dec[10];
+    assert(syna_tls_decrypt_app_data(&ctx, enc, enc_len, small_dec, sizeof(small_dec), &dec_len) == -8);
+
     /* Test tamper detection: flip 1 byte in ciphertext */
     enc[25] ^= 0x01;
-    assert(syna_tls_decrypt_app_data(&ctx, enc, enc_len, dec, &dec_len) != 0);
+    assert(syna_tls_decrypt_app_data(&ctx, enc, enc_len, dec, sizeof(dec), &dec_len) != 0);
 
     printf("  [PASS] test_encrypt_decrypt_roundtrip & tamper_detection\n");
 }

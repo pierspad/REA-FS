@@ -100,3 +100,4 @@ test_enroll_verify_bin = executable('test_fprint_enroll_verify',
     c_args: ['-Wno-unused-parameter'],
     dependencies: [libfprint_public_dep, glib_dep]
 )
+

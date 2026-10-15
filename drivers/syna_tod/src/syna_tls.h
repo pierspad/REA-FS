@@ -100,7 +100,8 @@ int syna_tls_encrypt_app_data(SynaTlsContext *ctx,
  */
 int syna_tls_decrypt_app_data(SynaTlsContext *ctx,
                               const uint8_t *in, size_t in_len,
-                              uint8_t *out, size_t *out_len);
+                              uint8_t *out, size_t max_out_len,
+                              size_t *out_len);
 
 /**
  * Build encrypted close_notify alert record (0x15).

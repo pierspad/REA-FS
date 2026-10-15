@@ -397,7 +397,7 @@ int syna_tls_handle_flight2_reply(SynaTlsContext *ctx, const uint8_t *in, size_t
     uint8_t dec[128];
     size_t dec_len = 0;
     ctx->secure_rx = true;
-    if (syna_tls_decrypt_app_data(ctx, fin_rec, fin_len, dec, &dec_len) != 0)
+    if (syna_tls_decrypt_app_data(ctx, fin_rec, fin_len, dec, sizeof(dec), &dec_len) != 0)
         return -4;
 
     if (dec_len < 16 || dec[0] != 0x14) return -5;
@@ -482,7 +482,8 @@ int syna_tls_encrypt_app_data(SynaTlsContext *ctx,
 
 int syna_tls_decrypt_app_data(SynaTlsContext *ctx,
                               const uint8_t *in, size_t in_len,
-                              uint8_t *out, size_t *out_len)
+                              uint8_t *out, size_t max_out_len,
+                              size_t *out_len)
 {
     if (!ctx || !in || in_len < 5 + 16 + 32 + 16) return -1;
 
@@ -542,6 +543,11 @@ int syna_tls_decrypt_app_data(SynaTlsContext *ctx,
     if (CRYPTO_memcmp(received_mac, expected_mac, 32) != 0) {
         free(plain);
         return -7;
+    }
+
+    if (content_len > max_out_len) {
+        free(plain);
+        return -8;
     }
 
     memcpy(out, plain, content_len);
