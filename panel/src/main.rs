@@ -40,6 +40,7 @@ enum Tab {
     Tools,
 }
 
+#[allow(dead_code)]
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Icon {
     Refresh,
@@ -301,8 +302,8 @@ fn choice(ui: &mut egui::Ui, label: &str, sub: &str, selected: bool, size: Vec2,
 
 fn card<R>(ui: &mut egui::Ui, add: impl FnOnce(&mut egui::Ui) -> R) -> R {
     egui::Frame::new()
-        .inner_margin(20)
-        .corner_radius(14.0)
+        .inner_margin(16)
+        .corner_radius(12.0)
         .fill(CARD)
         .stroke(Stroke::new(1.0, BORDER))
         .show(ui, |ui| {
@@ -314,7 +315,7 @@ fn card<R>(ui: &mut egui::Ui, add: impl FnOnce(&mut egui::Ui) -> R) -> R {
 
 fn fingerprint_scanner(ui: &mut egui::Ui, phase: Phase, result: Option<bool>) {
     use std::f32::consts::PI;
-    let (rect, _) = ui.allocate_exact_size(Vec2::new(150.0, 170.0), Sense::hover());
+    let (rect, _) = ui.allocate_exact_size(Vec2::new(130.0, 145.0), Sense::hover());
     let c = rect.center();
     let painter = ui.painter();
     let (fill, accent) = match (result, phase) {
@@ -325,25 +326,25 @@ fn fingerprint_scanner(ui: &mut egui::Ui, phase: Phase, result: Option<bool>) {
         (_, Phase::Lift) | (_, Phase::Preparing) | (_, Phase::Wait) => (Color32::from_rgb(60, 35, 5), AMBER),
         (_, Phase::Idle) => (BG, MUTED),
     };
-    let pad = Rect::from_center_size(c, Vec2::new(124.0, 150.0));
+    let pad = Rect::from_center_size(c, Vec2::new(108.0, 126.0));
     if phase != Phase::Idle || result.is_some() {
         let pulse = (ui.input(|i| i.time) * 3.0).sin() as f32 * 0.5 + 0.5;
         let glow = accent.gamma_multiply(0.12 + 0.18 * if phase == Phase::Touch { pulse } else { 0.6 });
-        painter.rect_filled(pad.expand(7.0), 30.0, glow);
+        painter.rect_filled(pad.expand(6.0), 22.0, glow);
     }
-    painter.rect_filled(pad, 26.0, fill);
-    painter.rect_stroke(pad, 26.0, Stroke::new(2.2, accent), egui::StrokeKind::Inside);
-    let core = Pos2::new(c.x, c.y - 6.0);
-    for (i, r) in [7.0f32, 15.0, 23.0, 31.0, 39.0, 47.0].iter().enumerate() {
+    painter.rect_filled(pad, 20.0, fill);
+    painter.rect_stroke(pad, 20.0, Stroke::new(2.0, accent), egui::StrokeKind::Inside);
+    let core = Pos2::new(c.x, c.y - 5.0);
+    for (i, r) in [6.0f32, 13.0, 20.0, 27.0, 34.0, 41.0].iter().enumerate() {
         let mut points = arc(core, *r, PI, 2.0 * PI);
-        let drop = 14.0 + i as f32 * 7.0;
+        let drop = 12.0 + i as f32 * 6.0;
         points.insert(0, core + Vec2::new(-r, drop));
         points.push(core + Vec2::new(*r, drop * 0.85));
-        painter.add(egui::Shape::line(points, Stroke::new(2.4, accent)));
+        painter.add(egui::Shape::line(points, Stroke::new(2.2, accent)));
     }
 }
 
-fn simulation_visual(ui: &mut egui::Ui, state: &State) {
+fn simulation_visual(ui: &mut egui::Ui, completed: u64) {
     let (rect, _) = ui.allocate_exact_size(Vec2::new(250.0, 90.0), Sense::hover());
     let y = rect.center().y;
     let painter = ui.painter();
@@ -353,7 +354,7 @@ fn simulation_visual(ui: &mut egui::Ui, state: &State) {
     );
     for index in 0..3 {
         let center = Pos2::new(rect.left() + 35.0 + index as f32 * 90.0, y);
-        let done = state.completed > index;
+        let done = completed > index;
         painter.circle_filled(center, 22.0, if done { SKY_DARK } else { CARD_HI });
         painter.text(
             center,
@@ -366,8 +367,8 @@ fn simulation_visual(ui: &mut egui::Ui, state: &State) {
 }
 
 /// Big, unambiguous instruction derived from observed device events.
-fn phase_banner(ui: &mut egui::Ui, state: &State, verifying: bool) {
-    let (title, sub, color) = match state.phase() {
+fn phase_banner(ui: &mut egui::Ui, phase: Phase, hint: &str, remaining: f64, verifying: bool) {
+    let (title, sub, color) = match phase {
         Phase::Preparing => ("NON TOCCARE", "Apertura e calibrazione del sensore…", AMBER),
         Phase::Wait => ("ATTENDI", "Il sensore non chiede ancora il dito.", AMBER),
         Phase::Touch => ("APPOGGIA IL DITO", "Appoggialo piatto al centro del lettore.", SKY),
@@ -376,13 +377,13 @@ fn phase_banner(ui: &mut egui::Ui, state: &State, verifying: bool) {
         Phase::Lift => ("SOLLEVA IL DITO", "Staccalo completamente, poi riappoggialo.", AMBER),
         Phase::Idle => return,
     };
-    ui.label(RichText::new(title).size(30.0).color(color).strong());
-    ui.label(RichText::new(sub).size(15.5).color(MUTED));
-    if !state.hint.is_empty() {
-        ui.label(RichText::new(&state.hint).size(15.5).color(AMBER).strong());
+    ui.label(RichText::new(title).size(25.0).color(color).strong());
+    ui.label(RichText::new(sub).size(14.0).color(MUTED));
+    if !hint.is_empty() {
+        ui.label(RichText::new(hint).size(14.0).color(AMBER).strong());
     }
-    if state.timeout > 0.0 {
-        ui.label(RichText::new(format!("Tempo massimo residuo: {:.0} s", state.remaining())).size(13.0).color(MUTED));
+    if remaining > 0.0 {
+        ui.label(RichText::new(format!("Tempo massimo residuo: {:.0} s", remaining)).size(12.0).color(MUTED));
     }
 }
 
@@ -543,8 +544,19 @@ impl Panel {
                                 if self.busy() {
                                     self.pending = Some(plan);
                                 } else {
-                                    if find(&plan, self.tab).is_none() && self.tab != Tab::Tools {
-                                        self.tab = if find(&plan, Tab::Verify).is_some() { Tab::Verify } else { Tab::Tools };
+                                    let has_tools = plan.plan.experiments.iter().enumerate().any(|(i, _)| is_tool(&plan, i));
+                                    if find(&plan, self.tab).is_none() && (self.tab != Tab::Tools || !has_tools) {
+                                        self.tab = if find(&plan, Tab::Verify).is_some() {
+                                            Tab::Verify
+                                        } else if find(&plan, Tab::Enroll).is_some() {
+                                            Tab::Enroll
+                                        } else if find(&plan, Tab::Manage).is_some() {
+                                            Tab::Manage
+                                        } else if has_tools {
+                                            Tab::Tools
+                                        } else {
+                                            Tab::Verify
+                                        };
                                     }
                                     self.plan = Some(plan);
                                     self.reset_states();
@@ -635,6 +647,7 @@ impl Panel {
     }
 
     fn tabs_ui(&mut self, ui: &mut egui::Ui, ctx: &egui::Context, envelope: &Envelope) {
+        let has_any_tools = envelope.plan.experiments.iter().enumerate().any(|(i, _)| is_tool(envelope, i));
         let entries = [
             (Tab::Verify, "Verifica", Icon::Finger),
             (Tab::Enroll, "Registra", Icon::Play),
@@ -643,105 +656,162 @@ impl Panel {
         ];
         ui.horizontal(|ui| {
             for (tab, label, icon) in entries {
-                let available = tab == Tab::Tools || find(envelope, tab).is_some();
+                let available = match tab {
+                    Tab::Tools => has_any_tools,
+                    _ => find(envelope, tab).is_some(),
+                };
                 if !available {
                     continue;
                 }
                 let selected = self.tab == tab;
                 let fill = if selected { SKY_DARK } else { CARD_HI };
-                if button(ui, Some(icon), label, fill, Vec2::new(150.0, 42.0), !self.busy() || selected).clicked() {
+                if button(ui, Some(icon), label, fill, Vec2::new(140.0, 40.0), !self.busy() || selected).clicked() {
                     self.switch_tab(ctx, tab);
                 }
             }
         });
     }
 
+    fn log_ui(&self, ui: &mut egui::Ui, envelope: &Envelope) {
+        ui.collapsing("Log per l’agente", |ui| {
+            ui.label(RichText::new("Ogni prova è salvata automaticamente nei file di sessione.").color(MUTED).size(12.5));
+            ui.monospace(self.session.join("runs-index.jsonl").display().to_string());
+            ui.monospace(self.session.join("latest-run.json").display().to_string());
+            ui.label(RichText::new(format!("Piano: {} · revisione {}", envelope.plan.plan_id, envelope.plan.revision)).size(12.0));
+        });
+    }
+
     fn verify_ui(&mut self, ui: &mut egui::Ui, ctx: &egui::Context, envelope: &Envelope) {
         let Some(index) = find(envelope, Tab::Verify) else { return };
         let running = self.running == Some(Tab::Verify);
-        let state = &self.verify;
-        let result = match state.result.as_str() {
+        let result = match self.verify.result.as_str() {
             "verify-match" => Some(true),
             "verify-no-match" => Some(false),
             _ => None,
         };
-        card(ui, |ui| {
-            ui.vertical_centered(|ui| {
-                ui.label(RichText::new("Verifica automatica").size(24.0).strong());
+        let phase = self.verify.phase();
+        let active = self.verify.active;
+        let status = self.verify.status.clone();
+        let detail = self.verify.detail.clone();
+        let terminal = self.verify.terminal.clone();
+        let op_started_at = self.verify.op_started_at;
+        let first_present_at = self.verify.first_present_at;
+        let result_at = self.verify.result_at;
+        let ended_at = self.verify.ended_at;
+        let verify_finger = self.verify.verify_finger.clone();
+        let hint = self.verify.hint.clone();
+        let remaining = self.verify.remaining();
+        let busy = self.busy();
+        let has_error = !self.error.is_empty();
+
+        let mut trigger_start = false;
+        let mut trigger_stop = false;
+
+        ui.columns(2, |cols| {
+            // Colonna Sinistra: Card Verifica con scanner e pulsanti integrati
+            let left = &mut cols[0];
+            card(left, |ui| {
+                ui.label(RichText::new("Verifica automatica").size(22.0).strong());
                 ui.label(
-                    RichText::new("Appoggia un dito qualsiasi: il sistema lo confronta con tutte le impronte registrate.")
-                        .size(15.0)
+                    RichText::new("Lascia libero il sensore durante l’apertura, poi appoggia il dito quando richiesto.")
+                        .size(13.5)
                         .color(MUTED),
                 );
-                ui.add_space(8.0);
-                fingerprint_scanner(ui, state.phase(), if state.active { None } else { result });
-                ui.add_space(6.0);
-                if state.active {
-                    phase_banner(ui, state, true);
-                } else if let Some(matched) = result {
-                    let (title, color) = if matched { ("Impronta riconosciuta", GREEN) } else { ("Impronta non riconosciuta", RED) };
-                    ui.label(RichText::new(title).size(28.0).color(color).strong());
-                } else if !state.terminal.is_empty() {
-                    ui.label(RichText::new(&state.status).size(22.0).color(AMBER).strong());
-                    ui.label(RichText::new(&state.detail).size(14.5).color(MUTED));
-                } else {
-                    ui.label(RichText::new("Pronto").size(22.0).color(TEXT).strong());
-                }
-            });
-        });
-        if !state.active && result.is_some() {
-            ui.add_space(10.0);
-            card(ui, |ui| {
-                ui.label(RichText::new("Dettagli dell’esito").size(17.0).strong());
-                let finger = if !state.verify_finger.is_empty() && state.verify_finger != "any" {
-                    finger_label(&state.verify_finger)
-                } else if result == Some(true) {
-                    match self.enrolled.as_deref() {
-                        Some([only]) => format!("{} (unico dito registrato)", finger_label(only)),
-                        _ => "Una delle dita registrate: fprintd non comunica quale".into(),
+                ui.add_space(4.0);
+                ui.vertical_centered(|ui| {
+                    fingerprint_scanner(ui, phase, if active { None } else { result });
+                    ui.add_space(4.0);
+                    if active {
+                        phase_banner(ui, phase, &hint, remaining, true);
+                    } else if let Some(matched) = result {
+                        let (title, color) = if matched { ("Impronta riconosciuta", GREEN) } else { ("Impronta non riconosciuta", RED) };
+                        ui.label(RichText::new(title).size(22.0).color(color).strong());
+                    } else if !terminal.is_empty() {
+                        ui.label(RichText::new(&status).size(19.0).color(AMBER).strong());
+                        ui.label(RichText::new(&detail).size(13.0).color(MUTED));
+                    } else {
+                        ui.label(RichText::new("Pronto").size(19.0).color(TEXT).strong());
                     }
-                } else {
-                    "Nessuna corrispondenza".into()
-                };
-                egui::Grid::new("verify-details").num_columns(2).spacing([24.0, 8.0]).show(ui, |ui| {
-                    ui.label(RichText::new("Dito").color(MUTED));
-                    ui.label(RichText::new(finger).strong());
-                    ui.end_row();
-                    ui.label(RichText::new("Accuratezza").color(MUTED));
-                    ui.label("Non disponibile: fprintd restituisce solo corrisponde / non corrisponde, senza punteggio");
-                    ui.end_row();
-                    if let Some(open) = state.op_started_at {
-                        ui.label(RichText::new("Apertura sensore").color(MUTED));
-                        ui.label(format!("{open:.1} s (dall’avvio a «pronto»)"));
-                        ui.end_row();
-                    }
-                    if let Some(match_time) = seconds(state.first_present_at, state.result_at) {
-                        ui.label(RichText::new("Dal contatto all’esito").color(MUTED));
-                        ui.label(format!("{match_time:.1} s (contatto letto ogni 0,5 s)"));
-                        ui.end_row();
-                    }
-                    if let Some(total) = state.result_at {
-                        ui.label(RichText::new("Totale").color(MUTED));
-                        ui.label(format!("{total:.1} s"));
-                        ui.end_row();
+                    ui.add_space(8.0);
+                    if running {
+                        if button(ui, Some(Icon::Stop), "Interrompi", RED_DARK, Vec2::new(170.0, 40.0), true).clicked() {
+                            trigger_stop = true;
+                        }
+                    } else {
+                        let label = if terminal.is_empty() { "Verifica impronta" } else { "Verifica di nuovo" };
+                        let can = !busy && !has_error;
+                        if button(ui, Some(Icon::Play), label, SKY_DARK, Vec2::new(210.0, 40.0), can).clicked() {
+                            trigger_start = true;
+                        }
                     }
                 });
             });
-        }
-        ui.add_space(12.0);
-        ui.horizontal(|ui| {
-            if running {
-                if button(ui, Some(Icon::Stop), "Interrompi", RED_DARK, Vec2::new(170.0, 46.0), true).clicked() {
-                    self.stop();
+
+            // Colonna Destra: Dettagli esito e metriche + Nota + Log
+            let right = &mut cols[1];
+            card(right, |ui| {
+                ui.label(RichText::new("Dettagli dell’esito e metriche").size(17.0).strong());
+                ui.add_space(4.0);
+                if !active && result.is_some() {
+                    let finger = if !verify_finger.is_empty() && verify_finger != "any" {
+                        finger_label(&verify_finger)
+                    } else if result == Some(true) {
+                        match self.enrolled.as_deref() {
+                            Some([only]) => format!("{} (unico dito registrato)", finger_label(only)),
+                            _ => "Una delle dita registrate: fprintd non comunica quale".into(),
+                        }
+                    } else {
+                        "Nessuna corrispondenza".into()
+                    };
+                    egui::Grid::new("verify-details").num_columns(2).spacing([18.0, 6.0]).show(ui, |ui| {
+                        ui.label(RichText::new("Dito").color(MUTED));
+                        ui.label(RichText::new(finger).strong());
+                        ui.end_row();
+                        if let Some(open) = op_started_at {
+                            ui.label(RichText::new("Apertura sensore").color(MUTED));
+                            ui.label(format!("{open:.1} s (dall'avvio a «pronto»)"));
+                            ui.end_row();
+                        }
+                        if let Some(match_time) = seconds(first_present_at, result_at) {
+                            ui.label(RichText::new("Dal contatto all’esito").color(MUTED));
+                            ui.label(format!("{match_time:.1} s"));
+                            ui.end_row();
+                        }
+                        if let Some(total) = result_at.or(ended_at) {
+                            ui.label(RichText::new("Totale").color(MUTED));
+                            ui.label(format!("{total:.1} s"));
+                            ui.end_row();
+                        }
+                    });
+                } else {
+                    ui.label(RichText::new("In attesa di avvio della prova.").size(13.5).color(MUTED));
+                    ui.add_space(4.0);
+                    if let Some(enrolled) = &self.enrolled {
+                        if !enrolled.is_empty() {
+                            let names: Vec<String> = enrolled.iter().map(|id| finger_label(id)).collect();
+                            ui.label(RichText::new(format!("Dita registrate nel sistema ({}):", enrolled.len())).size(13.5).strong());
+                            ui.label(RichText::new(names.join(", ")).size(13.0).color(SKY));
+                        } else {
+                            ui.label(RichText::new("Nessun dito attualmente registrato.").size(13.0).color(AMBER));
+                        }
+                    } else {
+                        ui.label(RichText::new("Istruzioni rapide:").size(13.5).strong());
+                        ui.label(RichText::new("Appoggia il polpastrello piatto al centro del lettore quando vedi «APPOGGIA IL DITO».").size(13.0).color(MUTED));
+                    }
                 }
-            } else {
-                let label = if self.verify.terminal.is_empty() { "Verifica impronta" } else { "Verifica di nuovo" };
-                let can = !self.busy() && self.error.is_empty();
-                if button(ui, Some(Icon::Play), label, SKY_DARK, Vec2::new(230.0, 46.0), can).clicked() {
-                    self.start(ctx, Tab::Verify, index, None);
-                }
-            }
+            });
+            right.add_space(6.0);
+            self.note_ui(right, ctx);
+            right.add_space(4.0);
+            self.log_ui(right, envelope);
         });
+
+        if trigger_stop {
+            self.stop();
+        }
+        if trigger_start {
+            self.start(ctx, Tab::Verify, index, None);
+        }
     }
 
     fn enroll_ui(&mut self, ui: &mut egui::Ui, ctx: &egui::Context, envelope: &Envelope) {
@@ -749,163 +819,248 @@ impl Panel {
         let running = self.running == Some(Tab::Enroll);
         let selected_id = format!("{}-{}", SIDES[self.side].0, FINGERS[self.finger].0);
         let enabled = !self.busy();
-        card(ui, |ui| {
-            ui.label(RichText::new("1 · Scegli la mano").size(17.0).strong());
-            ui.horizontal(|ui| {
-                for (i, (_, label)) in SIDES.iter().enumerate() {
-                    if choice(ui, label, "", self.side == i, Vec2::new(210.0, 50.0), enabled).clicked() {
-                        self.side = i;
-                    }
-                }
-            });
-            ui.add_space(8.0);
-            ui.label(RichText::new("2 · Scegli il dito").size(17.0).strong());
-            ui.horizontal_wrapped(|ui| {
-                for (i, (key, label)) in FINGERS.iter().enumerate() {
-                    let id = format!("{}-{key}", SIDES[self.side].0);
-                    let done = self.enrolled.as_ref().is_some_and(|e| e.contains(&id));
-                    if choice(ui, label, if done { "registrato" } else { "" }, self.finger == i, Vec2::new(150.0, 56.0), enabled)
-                        .clicked()
-                    {
-                        self.finger = i;
-                    }
-                }
-            });
-        });
-        ui.add_space(10.0);
-        let state = &self.enroll;
-        card(ui, |ui| {
-            ui.vertical_centered(|ui| {
-                let title = if state.finger.is_empty() { finger_label(&selected_id) } else { finger_label(&state.finger) };
-                ui.label(RichText::new(format!("3 · Registra: {title}")).size(20.0).strong());
-                let ok = state.result == "enroll-completed";
-                fingerprint_scanner(ui, state.phase(), if state.active || state.terminal.is_empty() { None } else { Some(ok) });
-                if state.active {
-                    phase_banner(ui, state, false);
-                } else if ok {
-                    ui.label(RichText::new("Registrazione completata").size(26.0).color(GREEN).strong());
-                } else if !state.terminal.is_empty() {
-                    ui.label(RichText::new(&state.status).size(22.0).color(RED).strong());
-                    ui.label(RichText::new(&state.detail).size(14.5).color(MUTED));
-                } else {
-                    ui.label(
-                        RichText::new("Premi «Registra»: ti dirò io quando appoggiare e quando sollevare il dito.")
-                            .size(15.0)
-                            .color(MUTED),
-                    );
-                }
-                if state.total > 0 {
-                    ui.add_space(6.0);
-                    ui.add(
-                        egui::ProgressBar::new((state.completed as f32 / state.total as f32).min(1.0))
-                            .fill(SKY_DARK)
-                            .desired_width(360.0)
-                            .text(format!("{} di {} appoggi", state.completed, state.total)),
-                    );
-                }
-            });
-        });
-        ui.add_space(12.0);
         let already = self.enrolled.as_ref().is_some_and(|e| e.contains(&selected_id));
-        ui.horizontal(|ui| {
-            if running {
-                if button(ui, Some(Icon::Stop), "Interrompi", RED_DARK, Vec2::new(170.0, 46.0), true).clicked() {
-                    self.stop();
-                }
-            } else {
-                let label = if already { "Sostituisci impronta" } else { "Registra" };
-                let can = !self.busy() && self.error.is_empty();
-                if button(ui, Some(Icon::Play), label, SKY_DARK, Vec2::new(230.0, 46.0), can).clicked() {
-                    self.start(ctx, Tab::Enroll, index, Some(selected_id.clone()));
-                }
-                if already {
-                    ui.label(RichText::new("Questo dito è già registrato: verrà sostituito.").color(AMBER));
-                }
-            }
+
+        let phase = self.enroll.phase();
+        let active = self.enroll.active;
+        let terminal = self.enroll.terminal.clone();
+        let status = self.enroll.status.clone();
+        let detail = self.enroll.detail.clone();
+        let completed = self.enroll.completed;
+        let total = self.enroll.total;
+        let ok = self.enroll.result == "enroll-completed";
+        let enroll_finger = self.enroll.finger.clone();
+        let hint = self.enroll.hint.clone();
+        let remaining = self.enroll.remaining();
+        let has_error = !self.error.is_empty();
+
+        let mut trigger_start = false;
+        let mut trigger_stop = false;
+        let mut new_side = None;
+        let mut new_finger = None;
+
+        ui.columns(2, |cols| {
+            // Colonna Sinistra: Scelta mano e dito + Nota per l'agente + Log
+            let left = &mut cols[0];
+            card(left, |ui| {
+                ui.label(RichText::new("1 · Scegli la mano").size(16.0).strong());
+                ui.horizontal(|ui| {
+                    for (i, (_, label)) in SIDES.iter().enumerate() {
+                        if choice(ui, label, "", self.side == i, Vec2::new(165.0, 44.0), enabled).clicked() {
+                            new_side = Some(i);
+                        }
+                    }
+                });
+                ui.add_space(6.0);
+                ui.label(RichText::new("2 · Scegli il dito").size(16.0).strong());
+                ui.horizontal_wrapped(|ui| {
+                    for (i, (key, label)) in FINGERS.iter().enumerate() {
+                        let id = format!("{}-{key}", SIDES[self.side].0);
+                        let done = self.enrolled.as_ref().is_some_and(|e| e.contains(&id));
+                        if choice(ui, label, if done { "registrato" } else { "" }, self.finger == i, Vec2::new(150.0, 46.0), enabled).clicked() {
+                            new_finger = Some(i);
+                        }
+                    }
+                });
+            });
+            left.add_space(6.0);
+            self.note_ui(left, ctx);
+            left.add_space(4.0);
+            self.log_ui(left, envelope);
+
+            // Colonna Destra: Registrazione
+            let right = &mut cols[1];
+            card(right, |ui| {
+                ui.vertical_centered(|ui| {
+                    let title = if enroll_finger.is_empty() { finger_label(&selected_id) } else { finger_label(&enroll_finger) };
+                    ui.label(RichText::new(format!("3 · Registra: {title}")).size(20.0).strong());
+                    ui.add_space(4.0);
+                    fingerprint_scanner(ui, phase, if active || terminal.is_empty() { None } else { Some(ok) });
+                    ui.add_space(4.0);
+                    if active {
+                        phase_banner(ui, phase, &hint, remaining, false);
+                    } else if ok {
+                        ui.label(RichText::new("Registrazione completata").size(22.0).color(GREEN).strong());
+                    } else if !terminal.is_empty() {
+                        ui.label(RichText::new(&status).size(19.0).color(RED).strong());
+                        ui.label(RichText::new(&detail).size(13.0).color(MUTED));
+                    } else {
+                        ui.label(
+                            RichText::new("Premi «Registra»: ti dirò io quando appoggiare e quando sollevare il dito.")
+                                .size(13.5)
+                                .color(MUTED),
+                        );
+                    }
+                    if total > 0 {
+                        ui.add_space(4.0);
+                        ui.add(
+                            egui::ProgressBar::new((completed as f32 / total as f32).min(1.0))
+                                .fill(SKY_DARK)
+                                .desired_width(280.0)
+                                .text(format!("{} di {} appoggi", completed, total)),
+                        );
+                    }
+                    ui.add_space(8.0);
+                    if running {
+                        if button(ui, Some(Icon::Stop), "Interrompi", RED_DARK, Vec2::new(170.0, 40.0), true).clicked() {
+                            trigger_stop = true;
+                        }
+                    } else {
+                        let label = if already { "Sostituisci impronta" } else { "Registra" };
+                        let can = enabled && !has_error;
+                        if button(ui, Some(Icon::Play), label, SKY_DARK, Vec2::new(210.0, 40.0), can).clicked() {
+                            trigger_start = true;
+                        }
+                        if already {
+                            ui.label(RichText::new("Questo dito è già registrato: verrà sostituito.").color(AMBER).size(12.5));
+                        }
+                    }
+                });
+            });
         });
+
+        if let Some(s) = new_side {
+            self.side = s;
+        }
+        if let Some(f) = new_finger {
+            self.finger = f;
+        }
+        if trigger_stop {
+            self.stop();
+        }
+        if trigger_start {
+            self.start(ctx, Tab::Enroll, index, Some(selected_id));
+        }
     }
 
     fn manage_ui(&mut self, ui: &mut egui::Ui, ctx: &egui::Context, envelope: &Envelope) {
         let delete = find_delete(envelope);
         let busy = self.busy();
-        card(ui, |ui| {
-            ui.horizontal(|ui| {
-                ui.label(RichText::new("Impronte registrate").size(22.0).strong());
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if button(ui, Some(Icon::Refresh), "Aggiorna", CARD_HI, Vec2::new(130.0, 36.0), !busy).clicked() {
-                        self.refresh_list(ctx);
-                    }
+        let enrolled = self.enrolled.clone();
+        let manage_active = self.manage.active;
+        let manage_terminal = self.manage.terminal.clone();
+        let manage_detail = self.manage.detail.clone();
+        let manage_finger = self.manage.finger.clone();
+        let confirm_delete_current = self.confirm_delete.clone();
+
+        let mut trigger_refresh = false;
+        let mut delete_target = None;
+        let mut new_confirm = None;
+        let mut clear_confirm = false;
+
+        ui.columns(2, |cols| {
+            // Colonna Sinistra: Lista impronte registrate con cestino
+            let left = &mut cols[0];
+            card(left, |ui| {
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new("Impronte registrate").size(20.0).strong());
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if button(ui, Some(Icon::Refresh), "Aggiorna", CARD_HI, Vec2::new(120.0, 34.0), !busy).clicked() {
+                            trigger_refresh = true;
+                        }
+                    });
                 });
-            });
-            ui.add_space(6.0);
-            match self.enrolled.clone() {
-                None if self.manage.active => {
-                    ui.label(RichText::new("Lettura dell’elenco…").color(MUTED));
-                }
-                None => {
-                    ui.label(RichText::new("Elenco non ancora letto. Premi «Aggiorna».").color(MUTED));
-                    if !self.manage.terminal.is_empty() {
-                        ui.label(RichText::new(&self.manage.detail).color(RED));
+                ui.add_space(6.0);
+                match enrolled {
+                    None if manage_active => {
+                        ui.label(RichText::new("Lettura dell’elenco…").color(MUTED));
                     }
-                }
-                Some(list) if list.is_empty() => {
-                    ui.label(RichText::new("Nessuna impronta registrata per questo utente.").color(MUTED));
-                }
-                Some(list) => {
-                    for id in list {
-                        egui::Frame::new()
-                            .inner_margin(14)
-                            .corner_radius(12.0)
-                            .fill(CARD_HI)
-                            .stroke(Stroke::new(1.0, BORDER))
-                            .show(ui, |ui| {
-                                ui.set_width(ui.available_width());
-                                ui.horizontal(|ui| {
-                                    let (r, _) = ui.allocate_exact_size(Vec2::splat(28.0), Sense::hover());
-                                    draw_icon(ui.painter(), Icon::Finger, r.center(), SKY);
-                                    ui.vertical(|ui| {
-                                        ui.label(RichText::new(finger_label(&id)).size(17.0).strong());
-                                        ui.label(RichText::new(&id).size(12.5).color(MUTED));
-                                    });
-                                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                                        let Some(delete) = delete else {
-                                            ui.label(RichText::new("Eliminazione non prevista dal piano").color(MUTED));
-                                            return;
-                                        };
-                                        if self.confirm_delete.as_deref() == Some(id.as_str()) {
-                                            if button(ui, Some(Icon::Cross), "Annulla", CARD_HI, Vec2::new(110.0, 36.0), !busy).clicked() {
-                                                self.confirm_delete = None;
+                    None => {
+                        ui.label(RichText::new("Elenco non ancora letto. Premi «Aggiorna».").color(MUTED));
+                        if !manage_terminal.is_empty() {
+                            ui.label(RichText::new(&manage_detail).color(RED));
+                        }
+                    }
+                    Some(list) if list.is_empty() => {
+                        ui.label(RichText::new("Nessuna impronta registrata per questo utente.").color(MUTED));
+                    }
+                    Some(list) => {
+                        for id in list {
+                            egui::Frame::new()
+                                .inner_margin(8)
+                                .corner_radius(8.0)
+                                .fill(CARD_HI)
+                                .stroke(Stroke::new(1.0, BORDER))
+                                .show(ui, |ui| {
+                                    ui.set_width(ui.available_width());
+                                    ui.horizontal(|ui| {
+                                        let (r, _) = ui.allocate_exact_size(Vec2::splat(24.0), Sense::hover());
+                                        draw_icon(ui.painter(), Icon::Finger, r.center(), SKY);
+                                        ui.vertical(|ui| {
+                                            ui.label(RichText::new(finger_label(&id)).size(15.0).strong());
+                                            ui.label(RichText::new(&id).size(12.0).color(MUTED));
+                                        });
+                                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                            let Some(_) = delete else {
+                                                ui.label(RichText::new("Eliminazione non prevista").color(MUTED));
+                                                return;
+                                            };
+                                            if confirm_delete_current.as_deref() == Some(id.as_str()) {
+                                                if button(ui, Some(Icon::Cross), "Annulla", CARD_HI, Vec2::new(80.0, 30.0), !busy).clicked() {
+                                                    clear_confirm = true;
+                                                }
+                                                if button(ui, Some(Icon::Trash), "Elimina", RED_DARK, Vec2::new(90.0, 30.0), !busy).clicked() {
+                                                    delete_target = Some(id.clone());
+                                                }
+                                                ui.label(RichText::new("Confermi?").color(AMBER).strong());
+                                            } else if button(ui, Some(Icon::Trash), "", CARD, Vec2::new(36.0, 30.0), !busy)
+                                                .on_hover_text("Elimina questa impronta")
+                                                .clicked()
+                                            {
+                                                new_confirm = Some(id.clone());
                                             }
-                                            if button(ui, Some(Icon::Trash), "Elimina", RED_DARK, Vec2::new(120.0, 36.0), !busy).clicked() {
-                                                self.confirm_delete = None;
-                                                self.refresh_after_exit = true;
-                                                self.start(ctx, Tab::Manage, delete, Some(id.clone()));
-                                            }
-                                            ui.label(RichText::new("Confermi?").color(AMBER).strong());
-                                        } else if button(ui, Some(Icon::Trash), "", CARD, Vec2::new(44.0, 36.0), !busy)
-                                            .on_hover_text("Elimina questa impronta")
-                                            .clicked()
-                                        {
-                                            self.confirm_delete = Some(id.clone());
-                                        }
+                                        });
                                     });
                                 });
-                            });
+                        }
                     }
                 }
-            }
-            if !self.manage.finger.is_empty() && !self.manage.terminal.is_empty() {
-                let ok = self.manage.terminal == "completed";
+                if !manage_finger.is_empty() && !manage_terminal.is_empty() {
+                    let ok = manage_terminal == "completed";
+                    ui.label(
+                        RichText::new(if ok {
+                            format!("{} eliminata.", finger_label(&manage_finger))
+                        } else {
+                            format!("Eliminazione non riuscita: {}", manage_detail)
+                        })
+                        .color(if ok { GREEN } else { RED }),
+                    );
+                }
+            });
+
+            // Colonna Destra: Nota per l'agente e Log
+            let right = &mut cols[1];
+            card(right, |ui| {
+                ui.label(RichText::new("Gestione Impronte").size(17.0).strong());
+                ui.add_space(4.0);
                 ui.label(
-                    RichText::new(if ok {
-                        format!("{} eliminata.", finger_label(&self.manage.finger))
-                    } else {
-                        format!("Eliminazione non riuscita: {}", self.manage.detail)
-                    })
-                    .color(if ok { GREEN } else { RED }),
+                    RichText::new("Le impronte registrate sono gestite direttamente dal demone di sistema fprintd e consentono l'autenticazione biometrica (KDE Lockscreen, PAM, sudo).")
+                        .size(13.0)
+                        .color(MUTED),
                 );
-            }
+            });
+            right.add_space(6.0);
+            self.note_ui(right, ctx);
+            right.add_space(4.0);
+            self.log_ui(right, envelope);
         });
+
+        if trigger_refresh {
+            self.refresh_list(ctx);
+        }
+        if clear_confirm {
+            self.confirm_delete = None;
+        }
+        if let Some(target) = new_confirm {
+            self.confirm_delete = Some(target);
+        }
+        if let Some(id) = delete_target {
+            self.confirm_delete = None;
+            self.refresh_after_exit = true;
+            if let Some(delete) = delete {
+                self.start(ctx, Tab::Manage, delete, Some(id));
+            }
+        }
     }
 
     fn tools_ui(&mut self, ui: &mut egui::Ui, ctx: &egui::Context, envelope: &Envelope) {
@@ -917,125 +1072,157 @@ impl Panel {
         if !tools.contains(&self.selected_tool) {
             self.selected_tool = tools[0];
         }
-        ui.horizontal_wrapped(|ui| {
-            for &i in &tools {
-                let task = &envelope.plan.experiments[i];
-                let fill = if self.selected_tool == i { SKY_DARK } else { CARD_HI };
-                let width = (task.title.chars().count() as f32 * 8.5 + 40.0).clamp(140.0, 360.0);
-                if button(ui, None, &task.title, fill, Vec2::new(width, 38.0), !self.busy()).clicked() {
-                    self.selected_tool = i;
-                    self.tools = State::default();
-                }
-            }
-        });
-        ui.add_space(8.0);
         let index = self.selected_tool;
         let task = &envelope.plan.experiments[index];
         let sim = task.adapter == "simulation";
         let fprintd = task.adapter == "fprintd";
         let running = self.running == Some(Tab::Tools);
-        let state = &self.tools;
-        card(ui, |ui| {
-            ui.label(RichText::new(&task.title).size(22.0).strong());
-            ui.label(
-                RichText::new(if sim {
-                    "Dimostrazione simulata · nessun sensore aperto, non toccare il lettore"
-                } else if fprintd {
-                    "Sensore reale via fprintd"
-                } else {
-                    "Comando locale"
-                })
-                .color(if sim { AMBER } else { SKY })
-                .strong(),
-            );
-            ui.add_space(6.0);
-            ui.vertical_centered(|ui| {
-                if sim {
-                    simulation_visual(ui, state);
-                } else if fprintd {
-                    fingerprint_scanner(ui, state.phase(), None);
-                    phase_banner(ui, state, program(task) == "fprintd-verify");
-                }
-                let color = match state.terminal.as_str() {
-                    "completed" => GREEN,
-                    "" if state.active => AMBER,
-                    "" => TEXT,
-                    _ => RED,
-                };
-                ui.label(RichText::new(&state.status).size(21.0).color(color).strong());
-            });
-            ui.label(
-                RichText::new(if state.run_id.is_empty() { &task.instructions } else { &state.detail })
-                    .size(15.0)
-                    .color(Color32::from_rgb(203, 213, 225)),
-            );
-            if state.total > 0 {
-                ui.add(
-                    egui::ProgressBar::new((state.completed as f32 / state.total as f32).min(1.0))
-                        .fill(SKY_DARK)
-                        .text(format!("{} / {}", state.completed, state.total)),
-                );
-            }
-            if !state.next_steps.is_empty() && !state.active {
-                ui.label(RichText::new(&state.next_steps).color(GREEN));
-            }
-        });
-        ui.add_space(10.0);
-        ui.horizontal(|ui| {
-            if running {
-                if button(ui, Some(Icon::Stop), "Interrompi", RED_DARK, Vec2::new(170.0, 44.0), true).clicked() {
-                    self.stop();
-                }
-                if fprintd && button(ui, Some(Icon::Check), "Conferma manuale", CARD_HI, Vec2::new(200.0, 44.0), true).clicked() {
-                    if let Some(tx) = &self.controls {
-                        let _ = tx.send(runner::control("confirm", None));
+        let phase = self.tools.phase();
+        let active = self.tools.active;
+        let terminal = self.tools.terminal.clone();
+        let status = self.tools.status.clone();
+        let detail = self.tools.detail.clone();
+        let completed = self.tools.completed;
+        let total = self.tools.total;
+        let hint = self.tools.hint.clone();
+        let remaining = self.tools.remaining();
+        let is_empty_run = self.tools.run_id.is_empty();
+        let busy = self.busy();
+        let has_error = !self.error.is_empty();
+        let has_f = has_finger(task);
+
+        let mut new_tool = None;
+        let mut trigger_start = false;
+        let mut trigger_stop = false;
+
+        ui.columns(2, |cols| {
+            let left = &mut cols[0];
+            left.horizontal_wrapped(|ui| {
+                for &i in &tools {
+                    let t = &envelope.plan.experiments[i];
+                    let fill = if self.selected_tool == i { SKY_DARK } else { CARD_HI };
+                    let width = (t.title.chars().count() as f32 * 8.0 + 30.0).clamp(120.0, 320.0);
+                    if button(ui, None, &t.title, fill, Vec2::new(width, 36.0), !busy).clicked() {
+                        new_tool = Some(i);
                     }
                 }
-            } else {
-                let can = !self.busy() && self.error.is_empty() && !has_finger(task);
-                let label = if self.tools.run_id.is_empty() { "Esegui" } else { "Esegui di nuovo" };
-                if button(ui, Some(Icon::Play), label, SKY_DARK, Vec2::new(200.0, 44.0), can).clicked() {
-                    self.start(ctx, Tab::Tools, index, None);
+            });
+            left.add_space(6.0);
+            card(left, |ui| {
+                ui.label(RichText::new(&task.title).size(20.0).strong());
+                ui.label(
+                    RichText::new(if sim {
+                        "Dimostrazione simulata · nessun sensore aperto"
+                    } else if fprintd {
+                        "Sensore reale via fprintd"
+                    } else {
+                        "Comando locale"
+                    })
+                    .color(if sim { AMBER } else { SKY })
+                    .strong(),
+                );
+                ui.add_space(4.0);
+                ui.vertical_centered(|ui| {
+                    if sim {
+                        simulation_visual(ui, completed);
+                    } else if fprintd {
+                        fingerprint_scanner(ui, phase, None);
+                        phase_banner(ui, phase, &hint, remaining, program(task) == "fprintd-verify");
+                    }
+                    let color = match terminal.as_str() {
+                        "completed" => GREEN,
+                        "" if active => AMBER,
+                        "" => TEXT,
+                        _ => RED,
+                    };
+                    ui.label(RichText::new(&status).size(18.0).color(color).strong());
+                    if total > 0 {
+                        ui.add_space(4.0);
+                        ui.add(
+                            egui::ProgressBar::new((completed as f32 / total as f32).min(1.0))
+                                .fill(SKY_DARK)
+                                .text(format!("{} / {}", completed, total)),
+                        );
+                    }
+                    ui.add_space(6.0);
+                    if running {
+                        if button(ui, Some(Icon::Stop), "Interrompi", RED_DARK, Vec2::new(170.0, 40.0), true).clicked() {
+                            trigger_stop = true;
+                        }
+                    } else {
+                        let can = !busy && !has_error && !has_f;
+                        let label = if is_empty_run { "Esegui" } else { "Esegui di nuovo" };
+                        if button(ui, Some(Icon::Play), label, SKY_DARK, Vec2::new(200.0, 40.0), can).clicked() {
+                            trigger_start = true;
+                        }
+                    }
+                });
+                ui.add_space(4.0);
+                ui.label(
+                    RichText::new(if is_empty_run { &task.instructions } else { &detail })
+                        .size(13.0)
+                        .color(Color32::from_rgb(203, 213, 225)),
+                );
+            });
+
+            let right = &mut cols[1];
+            card(right, |ui| {
+                ui.label(RichText::new("Dettagli tecnici").size(17.0).strong());
+                ui.add_space(4.0);
+                let command = task.argv.iter().map(|a| shell_quote(a)).collect::<Vec<_>>().join(" ");
+                ui.monospace(&command);
+                ui.label(RichText::new(format!("Cartella: {}", self.root.join(&task.cwd).display())).size(12.5));
+                ui.label(RichText::new(format!("Categoria: {} · timeout {} s", task.category, task.timeout_seconds)).size(12.5));
+                ui.add_space(4.0);
+                if button(ui, Some(Icon::Note), "Copia comando", CARD_HI, Vec2::new(150.0, 30.0), true).clicked() {
+                    ctx.copy_text(command);
+                    self.copy_requested = Some(Instant::now());
                 }
-            }
+            });
+            right.add_space(6.0);
+            self.note_ui(right, ctx);
+            right.add_space(4.0);
+            self.log_ui(right, envelope);
         });
-        ui.collapsing("Comando e dettagli tecnici", |ui| {
-            let command = task.argv.iter().map(|a| shell_quote(a)).collect::<Vec<_>>().join(" ");
-            ui.monospace(&command);
-            ui.label(RichText::new(format!("Cartella: {}", self.root.join(&task.cwd).display())).size(13.5));
-            ui.label(RichText::new(format!("Categoria: {} · timeout {} s", task.category, task.timeout_seconds)).size(13.5));
-            if button(ui, Some(Icon::Note), "Copia comando", CARD_HI, Vec2::new(170.0, 34.0), true).clicked() {
-                ctx.copy_text(command);
-                self.copy_requested = Some(Instant::now());
-            }
-        });
+
+        if let Some(t) = new_tool {
+            self.selected_tool = t;
+            self.tools = State::default();
+        }
+        if trigger_stop {
+            self.stop();
+        }
+        if trigger_start {
+            self.start(ctx, Tab::Tools, index, None);
+        }
     }
 
     fn note_ui(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
         card(ui, |ui| {
             ui.label(RichText::new("Nota per l’agente").size(16.0).strong());
             ui.label(
-                RichText::new("Facoltativa: finisce nel log della prova in corso o dell’ultima conclusa.")
-                    .size(13.5)
+                RichText::new("Facoltativa: finisce nel log della prova in corso o conclusa.")
+                    .size(12.5)
                     .color(MUTED),
             );
+            ui.add_space(4.0);
             ui.horizontal(|ui| {
                 let edit = egui::TextEdit::singleline(&mut self.note_draft)
-                    .hint_text("es. dito sbagliato / nessun segnale / ho sollevato troppo presto")
+                    .hint_text("es. dito leggero / nessun segnale / anticipato")
                     .char_limit(500)
-                    .desired_width(ui.available_width() - 170.0);
+                    .desired_width((ui.available_width() - 140.0).max(120.0));
                 let response = ui.add(edit);
                 let enter = response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
                 let can = !self.note_draft.trim().is_empty();
-                if button(ui, Some(Icon::Note), "Registra nota", CARD_HI, Vec2::new(160.0, 36.0), can).clicked() || (enter && can) {
+                if button(ui, Some(Icon::Note), "Salva nota", CARD_HI, Vec2::new(130.0, 34.0), can).clicked() || (enter && can) {
                     self.save_note(ctx);
                 }
             });
             if let Some((time, result)) = &self.note_feedback {
                 if time.elapsed() < Duration::from_secs(5) {
                     match result {
-                        Ok(()) => ui.label(RichText::new("Nota salvata nel log.").color(GREEN)),
-                        Err(e) => ui.label(RichText::new(format!("Nota non salvata: {e}")).color(RED)),
+                        Ok(()) => ui.label(RichText::new("Nota salvata nel log.").color(GREEN).size(12.5)),
+                        Err(e) => ui.label(RichText::new(format!("Nota non salvata: {e}")).color(RED).size(12.5)),
                     };
                 }
             }
@@ -1050,54 +1237,43 @@ impl eframe::App for Panel {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
         egui::CentralPanel::default()
-            .frame(egui::Frame::new().inner_margin(24).fill(BG))
+            .frame(egui::Frame::new().inner_margin(16).fill(BG))
             .show(ui, |ui| {
-                egui::ScrollArea::vertical().show(ui, |ui| {
-                    ui.horizontal(|ui| {
-                        ui.label(RichText::new("REA-FS").size(26.0).strong());
-                        ui.label(RichText::new("Impronte digitali").size(17.0).color(MUTED));
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            if button(ui, Some(Icon::Refresh), "Ricarica piano", CARD_HI, Vec2::new(170.0, 36.0), !self.loading)
-                                .clicked()
-                            {
-                                self.load(&ctx);
-                            }
-                        });
-                    });
-                    ui.add_space(8.0);
-                    if !self.error.is_empty() {
-                        ui.colored_label(RED, RichText::new(&self.error).size(15.0).strong());
-                    }
-                    let Some(envelope) = self.plan.clone() else {
-                        ui.heading("Caricamento del piano…");
-                        ui.label("Nessuna azione parte automaticamente.");
-                        ui.monospace(self.session.join("plan.json").display().to_string());
-                        return;
-                    };
-                    self.tabs_ui(ui, &ctx, &envelope);
-                    ui.add_space(12.0);
-                    match self.tab {
-                        Tab::Verify => self.verify_ui(ui, &ctx, &envelope),
-                        Tab::Enroll => self.enroll_ui(ui, &ctx, &envelope),
-                        Tab::Manage => self.manage_ui(ui, &ctx, &envelope),
-                        Tab::Tools => self.tools_ui(ui, &ctx, &envelope),
-                    }
-                    ui.add_space(14.0);
-                    self.note_ui(ui, &ctx);
-                    if self.pending.is_some() {
-                        ui.colored_label(AMBER, "Piano aggiornato: la prova attiva conserva la revisione iniziale.");
-                    }
-                    if self.copy_requested.is_some_and(|t| t.elapsed() < Duration::from_secs(3)) {
-                        ui.colored_label(GREEN, "Testo copiato negli appunti.");
-                    }
-                    ui.add_space(6.0);
-                    ui.collapsing("Log per l’agente", |ui| {
-                        ui.label(RichText::new("Ogni prova è salvata automaticamente: non serve copiare nulla in chat.").color(MUTED));
-                        ui.monospace(self.session.join("runs-index.jsonl").display().to_string());
-                        ui.monospace(self.session.join("latest-run.json").display().to_string());
-                        ui.label(RichText::new(format!("Piano: {} · revisione {}", envelope.plan.plan_id, envelope.plan.revision)).size(13.5));
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new("REA-FS").size(24.0).strong());
+                    ui.label(RichText::new("Impronte digitali").size(16.0).color(MUTED));
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if button(ui, Some(Icon::Refresh), "Ricarica piano", CARD_HI, Vec2::new(150.0, 34.0), !self.loading)
+                            .clicked()
+                        {
+                            self.load(&ctx);
+                        }
                     });
                 });
+                ui.add_space(4.0);
+                if !self.error.is_empty() {
+                    ui.colored_label(RED, RichText::new(&self.error).size(14.0).strong());
+                }
+                let Some(envelope) = self.plan.clone() else {
+                    ui.heading("Caricamento del piano…");
+                    ui.label("Nessuna azione parte automaticamente.");
+                    ui.monospace(self.session.join("plan.json").display().to_string());
+                    return;
+                };
+                self.tabs_ui(ui, &ctx, &envelope);
+                ui.add_space(8.0);
+                match self.tab {
+                    Tab::Verify => self.verify_ui(ui, &ctx, &envelope),
+                    Tab::Enroll => self.enroll_ui(ui, &ctx, &envelope),
+                    Tab::Manage => self.manage_ui(ui, &ctx, &envelope),
+                    Tab::Tools => self.tools_ui(ui, &ctx, &envelope),
+                }
+                if self.pending.is_some() {
+                    ui.colored_label(AMBER, "Piano aggiornato: la prova attiva conserva la revisione iniziale.");
+                }
+                if self.copy_requested.is_some_and(|t| t.elapsed() < Duration::from_secs(3)) {
+                    ui.colored_label(GREEN, "Testo copiato negli appunti.");
+                }
             });
     }
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
@@ -1147,8 +1323,8 @@ fn main() -> eframe::Result {
         viewport: egui::ViewportBuilder::default()
             .with_app_id("rea-fs-panel")
             .with_title("REA-FS · Impronte digitali")
-            .with_inner_size([960.0, 780.0])
-            .with_min_inner_size([820.0, 640.0]),
+            .with_inner_size([1040.0, 640.0])
+            .with_min_inner_size([900.0, 560.0]),
         ..Default::default()
     };
     eframe::run_native(
