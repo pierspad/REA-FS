@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "plan_id": "rea-fs-starter",
+  "revision": 1,
+  "title": "REA-FS · pannello esperimenti",
+  "experiments": [
+    {
+      "id": "simulation", "title": "Prova il pannello",
+      "instructions": "Simulazione: il sensore non viene aperto. Osserva gli stati oppure premi Interrompi.",
+      "argv": ["python3", "scripts/experiment-panel.py", "simulate"], "cwd": ".",
+      "timeout_seconds": 20, "adapter": "simulation", "category": "simulation"
+    },
+    {
+      "id": "preflight", "title": "Controlla l’ambiente",
+      "instructions": "Raccoglie metadati locali in un file privato. Non toccare il sensore.",
+      "argv": ["python3", "scripts/rea-fs.py", "preflight", "--output", "{run_dir}/preflight.json"],
+      "cwd": ".", "timeout_seconds": 180, "adapter": "plain", "category": "diagnostics"
+    },
+    {
+      "id": "offline-checks", "title": "Esegui test e build",
+      "instructions": "Test offline e compilazione: nessuna impronta acquisita. Richiede dipendenze di sviluppo già installate.",
+      "argv": ["python3", "scripts/rea-fs.py", "check"], "cwd": ".",
+      "timeout_seconds": 600, "adapter": "plain", "category": "local_preparation", "raw_log": true
+    }
+  ]
+}
