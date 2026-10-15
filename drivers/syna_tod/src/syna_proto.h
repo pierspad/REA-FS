@@ -38,3 +38,14 @@
 #define SYNA_TLS_APPLICATION_DATA   0x17
 
 #define SYNA_MATCH_THRESHOLD 0.50f
+
+/* Known status policy from successful USB experiments; not a universal device table. */
+static inline int syna_response_ok(uint8_t command, const uint8_t *response,
+                                  size_t length, uint16_t *status)
+{
+    if (status) *status = 0xffff;
+    if (!response || length < 2) return 0;
+    uint16_t value = response[0] | ((uint16_t)response[1] << 8);
+    if (status) *status = value;
+    return value == 0 || (command == SYNA_CMD_CLEANUP && value == 0x0491);
+}

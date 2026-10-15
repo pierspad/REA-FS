@@ -383,6 +383,9 @@ int syna_tls_build_flight2(SynaTlsContext *ctx, uint8_t *out, size_t *out_len)
     return 0;
 }
 
+static int syna_tls_decrypt_record(SynaTlsContext *ctx, uint8_t expected_type,
+    const uint8_t *in, size_t in_len, uint8_t *out, size_t max_out_len, size_t *out_len);
+
 int syna_tls_handle_flight2_reply(SynaTlsContext *ctx, const uint8_t *in, size_t in_len)
 {
     if (!ctx || !in || in_len < 6) return -1;
@@ -397,7 +400,7 @@ int syna_tls_handle_flight2_reply(SynaTlsContext *ctx, const uint8_t *in, size_t
     uint8_t dec[128];
     size_t dec_len = 0;
     ctx->secure_rx = true;
-    if (syna_tls_decrypt_app_data(ctx, fin_rec, fin_len, dec, sizeof(dec), &dec_len) != 0)
+    if (syna_tls_decrypt_record(ctx, 0x16, fin_rec, fin_len, dec, sizeof(dec), &dec_len) != 0)
         return -4;
 
     if (dec_len < 16 || dec[0] != 0x14) return -5;
@@ -449,7 +452,7 @@ int syna_tls_encrypt_record(SynaTlsContext *ctx,
     }
     payload_len += pad_len;
 
-    /* AES-128-CBC encryption */
+    /* AES-256-CBC encryption */
     uint8_t iv[16];
     RAND_bytes(iv, 16);
 
@@ -480,12 +483,14 @@ int syna_tls_encrypt_app_data(SynaTlsContext *ctx,
     return syna_tls_encrypt_record(ctx, 0x17, plain, plain_len, out, out_len);
 }
 
-int syna_tls_decrypt_app_data(SynaTlsContext *ctx,
+static int syna_tls_decrypt_record(SynaTlsContext *ctx, uint8_t expected_type,
                               const uint8_t *in, size_t in_len,
                               uint8_t *out, size_t max_out_len,
                               size_t *out_len)
 {
-    if (!ctx || !in || in_len < 5 + 16 + 32 + 16) return -1;
+    if (!ctx || !in || !out || !out_len || in_len < 5 + 16 + 32 + 16) return -1;
+    *out_len = 0;
+    if (in[0] != expected_type || in[1] != 0x03 || in[2] != 0x03) return -9;
 
     uint8_t type = in[0];
     uint16_t rec_len = get_u16_be(in + 3);
@@ -560,6 +565,12 @@ int syna_tls_decrypt_app_data(SynaTlsContext *ctx,
     *out_len = content_len;
     free(plain);
     return 0;
+}
+
+int syna_tls_decrypt_app_data(SynaTlsContext *ctx, const uint8_t *in, size_t in_len,
+    uint8_t *out, size_t max_out_len, size_t *out_len)
+{
+    return syna_tls_decrypt_record(ctx, 0x17, in, in_len, out, max_out_len, out_len);
 }
 
 int syna_tls_build_close_notify(SynaTlsContext *ctx, uint8_t *out, size_t *out_len)

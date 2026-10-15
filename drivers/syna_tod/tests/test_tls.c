@@ -61,6 +61,12 @@ static void test_encrypt_decrypt_roundtrip(void)
     malformed[3] = 0; malformed[4] = 0;
     assert(syna_tls_decrypt_app_data(&ctx, malformed, enc_len, dec, sizeof(dec), &dec_len) != 0);
 
+    /* An authenticated handshake/alert must not be consumed as application data. */
+    uint8_t other_record[128];
+    size_t other_len = 0;
+    assert(syna_tls_encrypt_record(&ctx, 0x16, plain, plain_len, other_record, &other_len) == 0);
+    assert(syna_tls_decrypt_app_data(&ctx, other_record, other_len, dec, sizeof(dec), &dec_len) != 0);
+
     /* Test buffer too small condition */
     uint8_t small_dec[10];
     assert(syna_tls_decrypt_app_data(&ctx, enc, enc_len, small_dec, sizeof(small_dec), &dec_len) == -8);

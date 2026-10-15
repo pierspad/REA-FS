@@ -112,3 +112,7 @@ test('template_tests', test_template_bin)
 test_timing_bin = executable('test_timing', sources: 'tests/test_timing.c',
     include_directories: driver_includes, dependencies: glib_dep)
 test('timing_tests', test_timing_bin)
+
+test_status_bin = executable('test_status', sources: 'tests/test_status.c',
+    include_directories: driver_includes)
+test('status_tests', test_status_bin)

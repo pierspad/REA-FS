@@ -152,6 +152,13 @@ syna_tls_app_exchange (FpiDeviceSyna00dc *self,
         return FALSE;
     }
 
+    uint16_t status = 0xffff;
+    if (!req_len || !syna_response_ok (req[0], resp, *resp_len, &status)) {
+        g_set_error (error, G_IO_ERROR, G_IO_ERROR_FAILED,
+                     "Sensor rejected command 0x%02x: status 0x%04x (reply %zu bytes)",
+                     req_len ? req[0] : 0, status, *resp_len);
+        return FALSE;
+    }
     return TRUE;
 }
 
@@ -163,7 +170,10 @@ syna_prepare_capture_pipeline (FpiDeviceSyna00dc *self, GCancellable *cancellabl
     uint8_t clean_cmd = SYNA_CMD_CLEANUP;
     uint8_t clean_resp[64];
     size_t clean_resp_len = 0;
-    syna_tls_app_exchange (self, &clean_cmd, 1, clean_resp, sizeof (clean_resp), &clean_resp_len, cancellable, NULL);
+    self->capture_pipeline_ready = FALSE;
+    if (!syna_tls_app_exchange (self, &clean_cmd, 1, clean_resp, sizeof (clean_resp),
+                                &clean_resp_len, cancellable, error))
+        return FALSE;
 
     /* 2. Capture initializer (0x06 + blob) */
     size_t init_req_len = 1 + self->oem.capture_init_blob_len;
@@ -222,7 +232,12 @@ syna_calibrate_baseline (FpiDeviceSyna00dc *self, GCancellable *cancellable, GEr
     uint8_t stop_cmd = SYNA_CMD_STOP;
     uint8_t stop_resp[64];
     size_t stop_resp_len = 0;
-    syna_tls_app_exchange (self, &stop_cmd, 1, stop_resp, sizeof (stop_resp), &stop_resp_len, NULL, NULL);
+    GError *stop_error = NULL;
+    if (!syna_tls_app_exchange (self, &stop_cmd, 1, stop_resp, sizeof (stop_resp),
+                                &stop_resp_len, NULL, &stop_error)) {
+        if (error && !*error) g_propagate_error (error, stop_error);
+        else g_clear_error (&stop_error);
+    }
 
     /* Drain bulk EP 130 */
     uint8_t drain_buf[16384];
@@ -575,7 +590,12 @@ syna_capture_finger_sample (FpiDeviceSyna00dc *self, GCancellable *cancellable, 
     uint8_t stop_cmd = SYNA_CMD_STOP;
     uint8_t stop_resp[64];
     size_t stop_resp_len = 0;
-    syna_tls_app_exchange (self, &stop_cmd, 1, stop_resp, sizeof (stop_resp), &stop_resp_len, NULL, NULL);
+    GError *stop_error = NULL;
+    if (!syna_tls_app_exchange (self, &stop_cmd, 1, stop_resp, sizeof (stop_resp),
+                                &stop_resp_len, NULL, &stop_error)) {
+        if (error && !*error) g_propagate_error (error, stop_error);
+        else g_clear_error (&stop_error);
+    }
 
     /* Drain any leftover bulk packets on EP 130 to keep endpoint cleanly halted */
     uint8_t drain_buf[16384];

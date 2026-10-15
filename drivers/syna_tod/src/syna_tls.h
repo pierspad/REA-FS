@@ -89,7 +89,7 @@ int syna_tls_encrypt_record(SynaTlsContext *ctx,
                             uint8_t *out, size_t *out_len);
 
 /**
- * Encrypt application data into a TLS 1.2 record (AES-128-CBC + HMAC-SHA256).
+ * Encrypt application data into a TLS 1.2 record (AES-256-CBC + HMAC-SHA256).
  */
 int syna_tls_encrypt_app_data(SynaTlsContext *ctx,
                               const uint8_t *plain, size_t plain_len,
