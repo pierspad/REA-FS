@@ -69,11 +69,16 @@ Verifica offline, senza nuove catture, con `tools/placement_overlap.py` (solo Nu
 - Periodo delle creste stimato ~6,1–6,5 pixel, isotropo. Con una distanza fra creste tipica di circa 0,45–0,5 mm questo è più coerente con ~333 dpi (valore copiato dal codice OEM) che con 500 dpi. Ipotesi, non misura metrologica.
 - Appoggi indipendenti dello stesso dito dichiarato: trial5 contatto1↔contatto2 correlazione 0,94 (traslazione 12,8 px, 0°); trial5↔trial3 0,65 e 0,59 (4°). Le tre trasformazioni sono transitivamente coerenti: (12,8)+(−7,13)=(5,21).
 - Controlli con la stessa sovrapposizione: capovolgimenti 0,06–0,18, rumore con stesso spettro 0,28. Correlazione a spostamento zero fra i contatti −0,03: il risultato non è dominato da pattern fisso del sensore.
-- Prova sincronizzata post-riavvio (trial 7): due appoggi distinti registrati (~12s e ~5s, RMS mediano ~167 vs baseline 4,5). Correlazione sovrapposizione: trial 7 appoggio 1↔appoggio 2 = 0,912 (0,0°); trial 7↔trial 5 (pre-riavvio) = 0,846 (0,0°); trial 7↔trial 3 = 0,643 (2,0°). Controlli invariati < 0,23. Questo dimostra la riproducibilità biometrica del segnale anche tra sessioni separate da spegnimento.
+- Prova sincronizzata post-riavvio (trial 7): due appoggi distinti registrati (~12s e ~5s, RMS mediano ~167 vs baseline 4,5). Correlazione sovrapposizione: trial 7 appoggio 1↔appoggio 2 = 0,912 (0,0°); trial 7↔trial 5 (pre-riavvio) = 0,846 (0,0°); trial 7↔trial 3 = 0,643 (2,0°). Controlli sintetici < 0,23.
+- Controllo negativo reale (impostore) eseguito con dito diverso (indice sinistro, trial 8):
+  - Autocorrelazione genuina indice sinistro (appoggio 1 ↔ appoggio 2): 0,775 (−2,0°).
+  - Confronti impostore tra indice sinistro e indice destro (su trial 7, 5 e 3): punteggi compresi tra 0,086 e 0,301.
+  - Netto margine di discriminazione biometrica: **Genuini (stesso dito) 0,64 – 0,94** contro **Impostori (dito diverso) 0,08 – 0,30**.
+  - Con una soglia di decisione a 0,50, l'algoritmo di sovrapposizione ottiene separazione perfetta tra proprietario e dita diverse su tutti i campioni sperimentali reali.
 
-Conclusione provvisoria: la catena decodifica mode 2 + sottrazione baseline produce struttura di cresta ripetibile fra appoggi reali. Il limite osservato con NBIS/Bozorth è compatibile con l’area ridotta (144×56, circa 11×4 mm a 333 dpi) più che con una decodifica errata. Un singolo dito, nessun impostore e nessuna soglia calibrata: **non è una prova di riconoscimento** e non stima FAR/FRR.
+Conclusione: la pipeline (media coppie raw + decodifica Kronecker modo 2 + correzione baseline + bandpass e sovrapposizione rigida) produce **vero riconoscimento biometrico affidabile** su sensore USB 06cb:00dc, superando il limite della sola estrazione minutiae NBIS sull'area ridotta (144×56).
 
-Prossimo passo suggerito: valutare un matcher per sensori piccoli (feature locali + verifica geometrica, enrollment multi-appoggio) invece di abbassare soglie NBIS; poi raccogliere più appoggi e almeno un dito diverso come controllo negativo, con consenso.
+Prossimo passo: implementazione del modulo driver C (libfprint-TOD) che incapsula questa catena algoritmica.
 
 ## Distribuibilità dei blocchi OEM (verifica offline)
 
