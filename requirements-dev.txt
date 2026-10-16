@@ -1,0 +1,2 @@
+# Offline image-analysis tests only; not needed by the GUI supervisor or driver.
+numpy>=1.24,<3

@@ -58,6 +58,9 @@ python3 scripts/rea-fs.py check
 
 Runs Python, Rust and C checks without hardware. Synthetic tests do not establish
 biometric reliability; hardware tests use the panel and explicit user actions.
+The complete test suite additionally needs NumPy (`python3-numpy` on Ubuntu,
+or `requirements-dev.txt` in a virtual environment). The panel supervisor itself
+uses only Python's standard library.
 
 - [Experiment panel](docs/experiment-panel.md)
 - [Generic sensor checklist](docs/re-checklist-template.md)
