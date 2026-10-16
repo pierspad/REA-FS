@@ -14,6 +14,15 @@ Leggi README.md, docs/repositories.md, docs/preferences.md, docs/agent-workflow.
 - Usa REA solo se disponibile e utile; clonare il progetto non significa aver installato o connesso il suo MCP.
 - Non scrivere nuove GUI o demoni da zero durante l’indagine: usa il pannello esistente del repository (`scripts/open-panel.py` + `.rea-fs.local/panel/plan.json`) secondo `docs/experiment-panel.md`.
 
+## Nuovo utente o sensore
+
+Leggi anche `docs/getting-started.md`. Consiglia il clone con `--recurse-submodules`;
+se il submodule manca, controlla prima le modifiche locali e inizializzalo senza
+scartarle. Il clone non installa driver o strumenti REA. La checklist generica non
+va sostituita con soglie, comandi, pairing o regole Polkit del caso Synaptics.
+Per tester del driver usa anche `drivers/syna_tod/docs/testing.md` e registra la
+revisione effettivamente installata, che può differire dal pin del workbench.
+
 ## Regola decisionale: Terminale diretto vs Pannello GUI
 
 - **Terminale diretto (eseguito dall’agente):** consentito SOLO per comandi in sola lettura (`lsusb`, `udevadm`, `python3 scripts/rea-fs.py preflight`), compilazioni (`meson`, `ninja`, `cargo`), test offline (`python3 scripts/rea-fs.py check`, `python3 -m unittest`) e analisi statica (`rea`, `ghidra`).

@@ -15,6 +15,10 @@ You do not need this GUI, Rust or the reverse-engineering tools to use that driv
 REA-FS provides a Rust/egui experiment panel, a Python supervisor, private session
 logs and a documented agent workflow. The Synaptics driver is a worked example,
 not a promise of compatibility with other sensors.
+Start with the [new-sensor guide](docs/getting-started.md): reading order, passive
+discovery, a private session, simulation and your first bounded experiment.
+**Use `--recurse-submodules`** to include the example driver and read its source;
+cloning does not install it or initialize your sensor.
 
 ```sh
 git clone --recurse-submodules https://github.com/pierspad/REA-FS.git
