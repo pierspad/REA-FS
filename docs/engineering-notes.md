@@ -6,9 +6,12 @@ This document collects the technical design decisions, signal-processing choices
 
 ## 1. Small-Area Sensors ($144 \times 56$ px) Need Spectral Correlation, Not Minutiae
 
-Standard `libfprint` uses NBIS (`mindtct` + `bozorth3`) to extract ridge endings and bifurcations. That works well on large square sensors ($192 \times 192$ or $256 \times 256$), but fails on narrow rectangular sensors (such as $144 \times 56$ pixels, $7.2 \times 2.8\text{ mm}$ at 508 DPI) because a $2.8\text{ mm}$ vertical strip contains too few minutiae (often $< 5$) and high boundary truncation.
+Standard `libfprint` uses NBIS (`mindtct` + `bozorth3`) to extract ridge endings and bifurcations. That works well on large square sensors ($192 \times 192$ or $256 \times 256$), but fails on narrow rectangular sensors (such as $144 \times 56$ pixels, $7.2 \times 2.8\text{ mm} = 20.16\text{ mm}^2$ at 508 DPI):
+- Under a normal $\pm 14\text{ px}$ ($0.7\text{ mm}$) vertical touch displacement, the overlapping area drops to $15.12\text{ mm}^2$. At human finger minutiae density ($\approx 0.28\text{ minutiae/mm}^2$), the expected count in the overlap is $\lambda \approx 4.23$ minutiae.
+- NBIS `bozorth3` hardcodes `MIN_COMPUTABLE_BOZORTH_MINUTIAE = 10`; by the Poisson cumulative distribution $P(N < 10 \mid \lambda = 4.23) = 98.8\%$, NBIS rejects almost all genuine touches before scoring.
+- Reproducible offline proof: `python3 tools/benchmark_small_sensor.py`.
 
-**Solution:** Use band-pass spatial filtering (Difference-of-Gaussians tuned to the 6–9 px ridge wavelength) followed by rotated 2D FFT cross-correlation normalized via Summed-Area Tables (SAT).
+**Solution:** Use band-pass spatial filtering (Difference-of-Gaussians tuned to the 6–9 px ridge wavelength) followed by rotated 2D FFT cross-correlation normalized via Summed-Area Tables (SAT), which correlates ~6,000 continuous ridge pixels and maintains $>0.92$ genuine vs. $<0.39$ impostor separation.
 
 ---
 
@@ -29,7 +32,7 @@ Standard `libfprint` uses NBIS (`mindtct` + `bozorth3`) to extract ridge endings
 
 Acquiring 10–20 empty-sensor frames every time `fprintd` opens the device adds 0.5–1.0 s of lag and causes `clear=0` failures if the user places their finger on the sensor immediately.
 
-**Solution:** Persist the validated empty-sensor baseline to `/var/lib/fprint/syna_00dc/baseline_cache.bin` (`0600`). On `verify`/`identify`, load the cached baseline in **0 ms** and allow capture to proceed even when the finger is already resting on the sensor at open time (`RMS > 35.0`).
+**Solution:** Persist the validated empty-sensor baseline to `/var/lib/fprint/syna_00dc/baseline_cache.bin` (`0600`) and cache it per `FpiDeviceSyna00dc` instance (`self->cached_baseline`). On `verify`/`identify`, load the cached baseline in **0 ms** and allow capture to proceed even when the finger is already resting on the sensor at open time (`RMS > 35.0`).
 
 ---
 
@@ -44,3 +47,11 @@ Acquiring 10–20 empty-sensor frames every time `fprintd` opens the device adds
 
 - **`dev_class->identify`:** When multiple fingers are enrolled, `fprintd-verify` and PAM call `identify` (1:N). Implementing `dev_class->identify` allows matching against all enrolled fingers in a single touch, with progressive sub-template learning (up to 16 diversity-selected views per finger).
 - **Polkit Rule (`50-syna-00dc-fprintd.rules`):** `fprintd` defaults to `auth_self_keep`, which expires as soon as a short-lived CLI process (`fprintd-enroll`) exits. Installing `/etc/polkit-1/rules.d/50-syna-00dc-fprintd.rules` allows active local desktop sessions to enroll, verify, and delete prints without repeated `sudo` prompts.
+
+---
+
+## 6. Upstream `libfprint` Readiness: OpenSSL 3.0 EVP & Async `FpiSsm`
+
+- **OpenSSL 3.0 EVP Compliance (`syna_tls.c`):** Custom TLS 1.2 PRF, HMAC-SHA256, P-256 ECDH key exchange, and ECDSA signing use pure OpenSSL 3.0 `EVP_MAC`, `EVP_Q_mac`, `EVP_PKEY_fromdata`, and `EVP_PKEY_Q_keygen` APIs with zero `-Wdeprecated-declarations` warnings.
+- **Complete `FpiSsm` Engine (`syna_ssm.c`):** Alongside the production `GTask` backend, `syna_ssm.c` implements non-blocking `open` (`syna_ssm_open_new`), `capture` (`syna_ssm_capture_new`), and `close` (`syna_ssm_close_new`, with uncancellable `0x1a` cleanup + TLS `close_notify` + USB interface release).
+
