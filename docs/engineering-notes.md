@@ -36,7 +36,7 @@ Acquiring 10–20 empty-sensor frames every time `fprintd` opens the device adds
 ## 4. Short Burst Capture (6 Frames $\approx 100\text{ ms}$) & Instant Lift Transition
 
 - Averaging **6 aligned frames** ($\pm 2\text{ px}$ translation search) preserves $>96.8\%$ correlation with a 20-frame window while cutting capture time to ~100 ms and avoiding motion blur.
-- **Instant Enrollment Feedback:** `syna_capture_finger_sample` returns immediately after collecting the 6 contact frames — *before* waiting for finger release. This lets `fprintd` emit `enroll-stage-passed` while the finger is still down so the GUI switches from **"TIENI FERMO"** to **"SOLLEVA IL DITO"** right away. Physical finger lift (`rms <= 28.0`) is enforced at the start of the next stage.
+- **Instant Enrollment Feedback:** `syna_capture_finger_sample` returns immediately after collecting the 6 contact frames — *before* waiting for finger release. This lets `fprintd` emit `enroll-stage-passed` while the finger is still down so the GUI switches from **"HOLD STILL"** to **"LIFT YOUR FINGER"** right away. Physical finger lift (`rms <= 28.0`) is enforced at the start of the next stage.
 
 ---
 

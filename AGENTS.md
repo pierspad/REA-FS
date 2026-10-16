@@ -1,41 +1,33 @@
-# Istruzioni per agenti REA-FS
+# REA-FS Agent Instructions
 
-Leggi README.md, docs/repositories.md, docs/preferences.md, docs/agent-workflow.md e docs/experiment-panel.md prima dell’indagine. Leggi anche `.rea-fs.local/preferences.json` se presente; le istruzioni esplicite dell’utente prevalgono.
+Before starting an investigation, read `README.md`, `docs/repositories.md`, `docs/preferences.md`, `docs/agent-workflow.md`, and `docs/experiment-panel.md`. Also read `.rea-fs.local/preferences.json` if present; explicit user instructions in chat take precedence.
 
-- REA-FS contiene pannello, workflow e documentazione; `workspace/rea` e `workspace/libfprint` sono clone indipendenti ignorati. `drivers/syna_tod` è il submodule del driver `synaptics-00dc`: inizializzarlo con `git submodule update --init --recursive` e pubblicare i commit del driver prima di aggiornare il pin. Leggi le istruzioni proprie di ogni clone prima di modificarlo.
-- Verifica repository, stato Git, remote e identità effettiva prima di commit o accessi remoti. Non portare l’identità freedesktop nel repository GitHub.
-- Riprendi il checkpoint locale prima di ripetere un esperimento. Distingui fatti, ipotesi e risultati ancora da verificare.
-- Non inventare osservazioni hardware, supporto, build riuscite o test eseguiti.
-- Comunica all’utente solo azioni fisiche utili e tempestive. Definisci timeout e criterio di successo; non interpretare il silenzio come conferma.
-- Applica docs/preferences.md: default autorizzazioni `ask`; in modalità `autonomous` procedi senza riconferme nelle categorie autorizzate. Registra il consenso già dato e rispettane l’ambito; chiedi solo per categorie mancanti. Un errore richiede indagine, non retry ciechi.
-- Se mancano preferenze, chiedile una volta in chat e salvale localmente. Se l’utente rifiuta o delega la scelta, registra i default scelti dall’agente; non inventare consenso all’autonomia.
-- Delega solo secondo le preferenze e i vincoli della sessione: includi nel confronto il costo di contesto, coordinamento e verifica. Modello economico e minor consumo di token non sono sinonimi.
-- Non eseguire push, aprire merge request o pubblicare dati senza autorizzazione. Non includere chiavi, template biometrici, scansioni o binari riservati nei file tracciati.
-- Usa REA solo se disponibile e utile; clonare il progetto non significa aver installato o connesso il suo MCP.
-- Non scrivere nuove GUI o demoni da zero durante l’indagine: usa il pannello esistente del repository (`scripts/open-panel.py` + `.rea-fs.local/panel/plan.json`) secondo `docs/experiment-panel.md`.
+## Core Principles
 
-## Nuovo utente o sensore
+- **Repository layout:** REA-FS owns the GUI panel, Python supervisor, and workflow docs. `workspace/rea` and `workspace/libfprint` are independent git-ignored clones. `drivers/syna_tod` is a pinned submodule of the standalone `synaptics-00dc` driver: initialize with `git submodule update --init --recursive` and publish driver commits before updating the submodule pin.
+- **Git hygiene:** Verify repository, status, remotes, and effective Git identity before committing or pushing. Never mix the freedesktop identity into GitHub commits.
+- **Evidence discipline:** Resume the local checkpoint before repeating any experiment. Separate verified facts, hypotheses, and untested paths. Never invent hardware observations, successful builds, or test outcomes.
+- **Privacy & security:** Never commit or publish private keys, pairing credentials, biometric templates, raw scans, or unredacted session logs. Never push or open PRs/MRs without explicit authorization.
+- **Preferences & autonomy:** Follow `docs/preferences.md`. Default mode is `ask`; in `autonomous` mode proceed without re-confirming within authorized categories. If `.rea-fs.local/preferences.json` is unconfigured, ask the 3 setup questions once in chat and save the result locally. Do not treat silence or refusal as consent to full autonomy. Errors require root-cause analysis, not blind retries.
+- **Delegation:** Delegate to subagents only when allowed by session preferences and when net savings (including context transfer and verification) are plausible. Cheap model pricing does not automatically equal fewer tokens.
 
-Leggi anche `docs/getting-started.md`. Consiglia il clone con `--recurse-submodules`;
-se il submodule manca, controlla prima le modifiche locali e inizializzalo senza
-scartarle. Il clone non installa driver o strumenti REA. La checklist generica non
-va sostituita con soglie, comandi, pairing o regole Polkit del caso Synaptics.
-Per tester del driver usa anche `drivers/syna_tod/docs/testing.md` e registra la
-revisione effettivamente installata, che può differire dal pin del workbench.
+## New User or Sensor
 
-## Regola decisionale: Terminale diretto vs Pannello GUI
+Read `docs/getting-started.md`. Recommend cloning with `--recurse-submodules`; if the submodule is missing, check for local changes before initializing it. Do not apply Synaptics-specific opcodes, thresholds, pairing blobs, or Polkit rules to another sensor. When assisting an external driver tester, follow `drivers/syna_tod/docs/testing.md` and record the exact tested revision.
 
-- **Terminale diretto (eseguito dall’agente):** consentito SOLO per comandi in sola lettura (`lsusb`, `udevadm`, `python3 scripts/rea-fs.py preflight`), compilazioni (`meson`, `ninja`, `cargo`), test offline (`python3 scripts/rea-fs.py check`, `python3 -m unittest`) e analisi statica (`rea`, `ghidra`).
-- **Pannello GUI (`.rea-fs.local/panel/plan.json`):** OBBLIGATORIO per ogni test che richieda contatto fisico col sensore, attesa dell’utente, cattura biometrica, enrollment/verifica `fprintd` o osservazione fisica. L’agente prepara `plan.json`, lo valida con `python3 scripts/experiment-panel.py validate --session-dir .rea-fs.local/panel`, dice all’utente quale esperimento avviare nella GUI e attende che l’utente risponda in chat. Al rientro l’agente legge i file di log in `.rea-fs.local/panel/` (`runs-index.jsonl`, `latest-run.json`, `<run_dir>/summary.json`, `<run_dir>/events.jsonl`).
-- **Fallback senza display grafico:** solo se `DISPLAY` e `WAYLAND_DISPLAY` sono assenti, o l’utente dichiara di essere via SSH puro senza X11/Wayland, usa la modalità a finestra temporale nel terminale descritta in `docs/agent-workflow.md`.
+## Execution Rule: Direct Terminal vs. GUI Panel
 
-## Macchina a Stati Obbligatoria (ciclo dell’agente)
+- **Direct terminal (run by the agent):** Permitted ONLY for passive read-only discovery (`lsusb`, `udevadm`, `python3 scripts/rea-fs.py preflight`), builds (`meson`, `ninja`, `cargo`), offline test suites (`python3 scripts/rea-fs.py check`, `python3 -m unittest`), and static binary analysis (`rea`, `ghidra`).
+- **GUI Panel (`.rea-fs.local/panel/plan.json`):** MANDATORY for any test requiring physical contact with the sensor, user waiting, biometric capture, `fprintd` enroll/verify, or hardware observation. Do not write ad-hoc GUIs or daemons. Write and validate `.rea-fs.local/panel/plan.json` (`python3 scripts/experiment-panel.py validate --session-dir .rea-fs.local/panel`), tell the user which experiment to run in `python3 scripts/open-panel.py`, and wait for their reply. On return, inspect `.rea-fs.local/panel/runs-index.jsonl`, `latest-run.json`, `<run_dir>/summary.json`, and `<run_dir>/events.jsonl`.
+- **Headless fallback:** Only when both `DISPLAY` and `WAYLAND_DISPLAY` are absent (pure SSH without forwarding), use the bounded time-window terminal protocol in `docs/agent-workflow.md`.
 
-Esegui un solo stato alla volta e annota in `checkpoint.md` lo stato corrente prima di passare al successivo.
+## Mandatory State Machine
 
-- `STATO 0 - BOOTSTRAP E PREFERENZE`: leggi i documenti indicati sopra e `.rea-fs.local/preferences.json`; riprendi `sessions/<id>/checkpoint.md` o creane uno con `python3 scripts/rea-fs.py init-session`. Se `preferences.json` non è configurato, fai le 3 domande di `docs/preferences.md` e fermati.
-- `STATO 1 - DISCOVERY PASSIVA`: esegui `python3 scripts/rea-fs.py preflight`; identifica bus, VID:PID, kernel, fprintd/libfprint installati. Aggiorna `checkpoint.md`. Nessun contatto col sensore.
-- `STATO 2 - RICERCA E IPOTESI`: controlla il supporto upstream in `workspace/libfprint`, issue/patch note e driver OEM. Registra in `checkpoint.md` cosa esiste già e cosa manca.
-- `STATO 3 - PREPARAZIONE ESPERIMENTO`: formula una sola domanda sperimentale nel formato di `docs/templates/investigation.md`. Se il test è offline, eseguilo nel terminale. Se richiede il sensore o l’utente, scrivi e valida `.rea-fs.local/panel/plan.json`, aggiorna `checkpoint.md` con stato `AZIONE RICHIESTA` e chiedi all’utente di avviarlo dal pannello GUI. Fermati e attendi la risposta.
-- `STATO 4 - LETTURA LOG E VALUTAZIONE`: quando l’utente risponde in chat, leggi `.rea-fs.local/panel/runs-index.jsonl` e `latest-run.json`, poi ispeziona `<run_dir>/summary.json` (incluse le `user_notes`), `<run_dir>/events.jsonl` ed eventuale `output.log` privato. Aggiorna `checkpoint.md` separando fatti osservati da interpretazioni.
-- `STATO 5 - IMPLEMENTAZIONE E VERIFICA`: implementa decoder/driver, esegui `python3 scripts/rea-fs.py check` (offline), poi prepara il piano GUI per le prove hardware di enrollment/verifica e ripeti `STATO 3 -> STATO 4`.
+Execute one state at a time and record the current state in `sessions/<id>/checkpoint.md` before advancing.
+
+- **`STATE 0 — BOOTSTRAP & PREFERENCES`:** Read required docs and `.rea-fs.local/preferences.json`. Resume `sessions/<id>/checkpoint.md` or create one via `python3 scripts/rea-fs.py init-session`. If preferences are unconfigured, ask the 3 setup questions in `docs/preferences.md` and stop.
+- **`STATE 1 — PASSIVE DISCOVERY`:** Run `python3 scripts/rea-fs.py preflight --output <session>/preflight.json`; identify bus, VID:PID, kernel, and installed `fprintd`/`libfprint` packages. Update `checkpoint.md`. No physical sensor contact.
+- **`STATE 2 — RESEARCH & HYPOTHESIS`:** Check upstream support in `workspace/libfprint`, issues/patches, and OEM driver packages. Record existing support and gaps in `checkpoint.md`.
+- **`STATE 3 — EXPERIMENT PREPARATION`:** Formulate a single experimental question (`docs/templates/investigation.md`). Run offline checks directly in the terminal. For hardware or interactive tests, write and validate `.rea-fs.local/panel/plan.json`, set `checkpoint.md` to `ACTION REQUIRED`, tell the user which experiment to run in the GUI panel, and stop.
+- **`STATE 4 — LOG INSPECTION & EVALUATION`:** When the user replies, read `.rea-fs.local/panel/runs-index.jsonl`, `latest-run.json`, `<run_dir>/summary.json` (including `user_notes` and `driver_telemetry`), `<run_dir>/events.jsonl`, and optional `output.log`. Update `checkpoint.md`, separating observed facts from interpretations.
+- **`STATE 5 — IMPLEMENTATION & VERIFICATION`:** Implement protocol/decoder/driver changes, run `python3 scripts/rea-fs.py check` offline, then prepare a GUI plan for hardware validation and repeat `STATE 3 -> STATE 4`.

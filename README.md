@@ -4,21 +4,13 @@
 
 **A workbench for reverse-engineering unsupported fingerprint sensors on Linux.**
 
-## Just want your Synaptics reader to work?
+## Just want your Synaptics `06cb:00dc` reader to work?
 
-For **USB `06cb:00dc`**, use [synaptics-00dc](https://github.com/pierspad/synaptics-00dc):
-the standalone C driver, installation command, prerequisites and known limitations.
-You do not need this GUI, Rust or the reverse-engineering tools to use that driver.
+Use [synaptics-00dc](https://github.com/pierspad/synaptics-00dc) for the standalone C driver and installation commands. You do not need this GUI or reverse-engineering tools just to use the driver.
 
 ## Investigate another sensor
 
-REA-FS provides a Rust/egui experiment panel, a Python supervisor, private session
-logs and a documented agent workflow. The Synaptics driver is a worked example,
-not a promise of compatibility with other sensors.
-Start with the [new-sensor guide](docs/getting-started.md): reading order, passive
-discovery, a private session, simulation and your first bounded experiment.
-**Use `--recurse-submodules`** to include the example driver and read its source;
-cloning does not install it or initialize your sensor.
+Start with the [new-sensor guide](docs/getting-started.md). Clone with `--recurse-submodules` to include the example driver source:
 
 ```sh
 git clone --recurse-submodules https://github.com/pierspad/REA-FS.git
@@ -26,62 +18,35 @@ cd REA-FS
 python3 scripts/open-panel.py
 ```
 
-The launcher builds the panel when necessary. A current built panel can run without
-Cargo; building it requires Rust/Cargo and Linux graphics development libraries.
-Python supervises experiments. No sensor experiment starts automatically.
+Give your coding agent this prompt:
 
-Give your coding agent this instruction:
-
-> Read AGENTS.md, docs/preferences.md, docs/agent-workflow.md and
+> Read AGENTS.md, docs/preferences.md, docs/agent-workflow.md, and
 > docs/experiment-panel.md. Resume the local checkpoint, identify my sensor
 > passively, and prepare any physical experiment in the existing GUI panel.
 
-## Layout
-
-| Path | Responsibility |
-|---|---|
-| `panel/` | Rust/egui user interface |
-| `tools/` | Python experiment supervision and offline analysis |
-| `scripts/` | Small launchers and workflow commands |
-| `tests/` | Workbench offline tests |
-| `drivers/syna_tod/` | Pinned submodule of the standalone Synaptics driver |
-| `docs/`, `examples/` | Workflow, research evidence and sample plans |
-| `sessions/`, `.rea-fs.local/` | Ignored private checkpoints, logs and captures |
-| `workspace/` | Ignored independent upstream/reference clones |
-
-The driver has one maintained source repository. A submodule stores its URL and
-an exact commit; it does not automatically follow the driver's latest changes.
-For an existing checkout: `git submodule update --init --recursive`.
-See [repository organization](docs/repositories.md) before updating the pin.
-
-## Checks and documentation
+## Development
 
 ```sh
 python3 scripts/rea-fs.py check
 ```
 
-Runs Python, Rust and C checks without hardware. Synthetic tests do not establish
-biometric reliability; hardware tests use the panel and explicit user actions.
-The complete test suite additionally needs NumPy (`python3-numpy` on Ubuntu,
-or `requirements-dev.txt` in a virtual environment). The panel supervisor itself
-uses only Python's standard library.
+Runs the offline Python, Rust, and C test suites and builds. Install the driver build dependencies and NumPy (`python3-numpy` or `requirements-dev.txt`) first.
 
-- [Experiment panel](docs/experiment-panel.md)
-- [Generic sensor checklist](docs/re-checklist-template.md)
-- [Synaptics investigation](docs/synaptics-06cb-00dc-checklist.md)
-- [libfprint upstream work and remaining gaps](docs/libfprint-upstreaming.md)
-- [Architecture decisions](docs/project-organization.md)
+The GUI lives in `panel/`, the Python supervisor and analysis tools in `tools/`, and the example driver submodule in `drivers/syna_tod`. See the [repository map](docs/repositories.md) for details.
+
+[Experiment panel](docs/experiment-panel.md) ·
+[Sensor checklist](docs/re-checklist-template.md) ·
+[Synaptics research](docs/research-06cb-00dc.md) ·
+[Engineering notes](docs/engineering-notes.md) ·
+[libfprint port](docs/libfprint-upstreaming.md)
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md). Never publish pairing keys, fingerprint
-images or enrolled templates.
+See [CONTRIBUTING.md](CONTRIBUTING.md). Never publish pairing keys, fingerprint images, or enrolled templates.
 
 ## LLM disclosure
 
-Developed with assistance from Large Language Models for reverse engineering,
-code, tests and documentation. Hardware evidence is recorded separately from
-implementation and offline test results.
+Developed with assistance from Large Language Models for reverse engineering, code, tests, and documentation. Hardware evidence is recorded separately from implementation and offline test results.
 
 ## License
 

@@ -1,40 +1,26 @@
-# Progetto: supporto Linux per Synaptics 06cb:00dc
+# Design Note: Linux Driver for Synaptics `06cb:00dc`
 
-Stato: progetto storico, in parte implementato nel modulo TOD. Il bootstrap pubblico, la calibrazione OEM completa e la validazione biometrica restano aperti; vedere [audit](audit-2026-10-15.md). Base: `docs/research-06cb-00dc.md`.
+Status: Architectural design implemented in the standalone [synaptics-00dc](https://github.com/pierspad/synaptics-00dc) C driver (`drivers/syna_tod` submodule). See [audit-2026-10-15.md](audit-2026-10-15.md) and [libfprint-upstreaming.md](libfprint-upstreaming.md) for current upstream gates.
 
-## Vincoli verificati
+## Hardware & Protocol Constraints
 
-- Inizializzazioni OEM opache: **diritti di distribuzione da chiarire**, non deducibili da cifratura o firma. Nel prototipo sono dati privati ottenuti dal pacchetto Acer ufficiale (`5.5.2.1124`, SHA256 in checkpoint) scaricato o fornito dall'utente.
-- Le query documentate riportano 0 partizioni: non provano l’assenza fisica di memoria. Il prototipo conserva template e chiave host sul PC con accessi restrittivi.
-- Matching sull'host; area 144×56 (~11×4 mm ipotizzati): NBIS/Bozorth non è sufficiente da solo.
+- **Host-side raw image sensor:** Unlike `06cb:00df` (match-on-chip supported by upstream `synaptics.c`), `06cb:00dc` (`product == 0x33`, module `0x0190:0x00a2` / type `0x2449`) streams encoded $152 \times 112$ raw frames over an OEM TLS 1.2 session (`0x44` bulk framing) and requires host-side decoding and matching.
+- **Small active area ($144 \times 56\text{ px}$):** After pair-averaging adjacent rows and decoding Mode-2 16-sample Kronecker blocks, the reconstructed image is $144 \times 56$ pixels ($\approx 7.2 \times 2.8\text{ mm}$). Standard NBIS `mindtct`/`bozorth3` struggles to extract $\ge 10$ minutiae from a $2.8\text{ mm}$ strip.
+- **Host-stored credentials & templates:** Flash partition query (`0x3e`) reports `0` partitions (`blocksize = 0`). Both pairing credentials (`host_key.pem`, `host_cert.bin`, `server_ecdh_pub.bin`) and enrolled biometric templates are stored on the host.
 
-## Architettura scelta: driver fuori albero
+## Architecture Choice
 
-Opzioni valutate:
+| Option | Pros | Cons |
+| --- | --- | --- |
+| **C `libfprint-tod` module (`synaptics-00dc`)** | Native C, integrates with standard `fprintd`/PAM/desktop, direct path to upstream `libfprint` | Requires `libfprint-tod` package until upstreamed into native `libfprint` |
+| **`python-validity` + `open-fprintd`** | Reuses Python TLS/Validity helpers | Built for match-on-chip sensors; requires replacing system `fprintd` |
+| **Standalone daemon** | No `libfprint` constraints | Reinvents `fprintd` D-Bus/PAM integration |
 
-| Opzione | Pro | Contro |
-|---|---|---|
-| Modulo **libfprint-TOD** (C) | stessa API di libfprint, funziona con fprintd standard, eventuale upstream futuro | richiede libfprint-tod di distribuzione; matcher NBIS inadeguato senza estensioni |
-| Estensione **python-validity** + open-fprintd | protocollo della stessa famiglia (TLS, `4f`, `06`, estrazione blob a runtime già presente) | progetto poco mantenuto, oggi pensato per match-on-sensor; richiede sostituire fprintd |
-| Servizio autonomo | libertà totale | reinventa fprintd/PAM |
+## Modular C Driver Components (`drivers/syna_tod/src/`)
 
-Proposta: **modulo TOD in C** con componenti separati e testabili:
-
-1. `oem-extract`: verifica SHA256 del pacchetto Acer, estrae dalla DLL i blocchi per ROM/tipo modulo (logica già validata in `oem-pe-data.py`).
-2. `tls`: handshake ECDH/ECDSA, record AES+HMAC (OpenSSL), test con server simulato.
-3. `pairing`: generazione chiave host, comando `4f`, salvataggio credenziali; ri-pairing solo su richiesta esplicita.
-4. `capture`: pulizia `1a`, init `06`, cattura `02`, stop `04`, close; chiusura TLS su ogni percorso di errore.
-5. `image`: framing 152×112, media coppie, mode 2 con baseline prima del clipping, rilevamento contatto.
-6. `match`: enrollment multi-appoggio; prima misura su NBIS ricampionato, poi matcher per area piccola se necessario.
-
-Le componenti 1–5 sono già dimostrate in Python; vanno portate e coperte da test. La 6 è il problema aperto.
-
-## Uso del repository per altri sensori
-
-REA-FS resta il workflow generico (`docs/agent-workflow.md`); il codice specifico vive in una directory/progetto per sensore. Per chi ha lo stesso 06cb:00dc: il driver dovrà verificare VID/PID/revisione/ROM/tipo modulo e rifiutare combinazioni non provate.
-
-## Prossimi passi
-
-1. Verificare persistenza dell'abbinamento dopo riavvio.
-2. Raccogliere un set di appoggi (stesso dito ×N, altro dito) per scegliere il matcher.
-3. Scheletro modulo TOD + port di `image` con test.
+1. **`syna_usb.c` / `syna_proto.h`:** Pre-init hardware verification (`0x01` ROM version, `0x75` module ID), bulk framing, monotonic deadlines, and clean interface release.
+2. **`syna_tls.c`:** ECDH (`prime256v1`) / ECDSA handshake, `TLS-PRF` key derivation, AES-256-CBC + HMAC-SHA256 record encryption/authentication, `close_notify`, and deterministic `HS_KEY_PAIR_GEN` host pairing (`0x4f` / `0x50`).
+3. **`syna_oem.c` / `syna_capture_tables.h`:** Built-in ROM `6.20` capture initializer (`0x06`, 4,676 B) and capture request (`0x02`, 1,917 B), plus strict validation of private credentials and baseline cache in `/var/lib/fprint/syna_00dc`.
+4. **`syna_image.c`:** $152 \times 112$ frame header/counter validation, `(0,1),(2,3)` row pair-averaging, pre-clipping baseline subtraction, Mode-2 Kronecker $16 \times 16$ decoding, and 6-frame translation-aligned burst averaging.
+5. **`syna_matcher.c`:** Difference-of-Gaussians band-pass filtering + pruned 2D radix-2 FFT cross-correlation normalized via Summed-Area Tables (SAT) and precomputed rotation LUTs (`-30°..+30°`).
+6. **`syna_device.c` / `syna_ssm.c`:** `FpDevice` lifecycle, 8-stage enrollment, 1:1 `verify` and 1:N `identify`, persistent baseline cache, and experimental `FpiSsm` state machines.

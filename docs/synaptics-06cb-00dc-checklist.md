@@ -57,7 +57,7 @@ This checklist instantiates [`docs/re-checklist-template.md`](re-checklist-templ
 
 ## Phase 5 — System Integration (`fprintd` / TOD Module)
 - [x] **8-Stage Enrollment (`SYNA_ENROLL_STAGES = 8`):** Captures 8 progressive touches (up to 16 diversity-selected sub-templates) to cover diverse angles and placements on the small $144 \times 56$ sensor.
-- [x] **Instant "Hold Still" $\to$ "Lift Finger" Transition:** `syna_capture_finger_sample` returns immediately after the 6-frame burst so `fprintd` emits `enroll-stage-passed` while the finger is still down, switching the GUI to **"SOLLEVA IL DITO"** right away; the next stage waits for physical lift (`rms <= 28.0`) before prompting **"APPOGGIA IL DITO"**.
+- [x] **Instant "Hold Still" $\to$ "Lift Finger" Transition:** `syna_capture_finger_sample` returns immediately after the 6-frame burst so `fprintd` emits `enroll-stage-passed` while the finger is still down, switching the GUI to **"LIFT YOUR FINGER"** right away; the next stage waits for physical lift (`rms <= 28.0`) before prompting **"PLACE YOUR FINGER"**.
 - [x] **Multi-Finger `identify` (1:N) Support (`syna_identify`):** Implemented `dev_class->identify` so `fprintd-verify` and desktop PAM login match against **all** enrolled fingers in a single touch.
 - [ ] **Remove legacy permissive Polkit installation:** no longer shipped by the installer. Existing system copies need explicit review/removal with backup; source changes do not remove an installed rule.
 

@@ -1,44 +1,42 @@
-# Indagine su un nuovo lettore
+# New-Sensor Investigation Template
 
-Copia questo modello nella sessione privata; non pubblicare le risposte grezze.
+Copy this template into your private session directory (`sessions/<id>/`); never publish raw biometric data or credentials.
 
-## Identità e provenienza
+## 1. Identity & Provenance
 
-- Bus, VID/PID oppure ID ACPI/HID; revisione, ROM e modulo se osservabili:
-- Distribuzione, kernel, pacchetti libfprint/fprintd e ambiente desktop:
-- Repository coinvolti, revisioni, eventuali modifiche preesistenti:
-- Fonti ufficiali, data della consultazione, hash del pacchetto OEM:
-- Istruzioni specifiche dei clone lette:
+- **Bus & device ID** (`VID:PID` or ACPI/HID, `bcdDevice`, internal ROM/module ID):
+- **System environment** (distro, kernel, `libfprint`/`fprintd` versions, desktop session):
+- **Repository revisions & local state**:
+- **OEM package provenance** (source URL, version, SHA-256, matched `.inf` entries):
 
-## Preferenze e dati
+## 2. Preferences & Data Policy
 
-- Fonte del consenso e categorie autorizzate/escluse:
-- Client interattivo o a finestra; come interrompere:
-- Directory privata, durata di conservazione e divieto di trasferimento esterno:
+- **Authorization mode & scope** (`allowed_actions` / `excluded_actions`):
+- **Execution channel** (GUI panel `plan.json` or headless fallback; stop procedure):
+- **Privacy & storage** (private session directory `0700`, `external_transfer: false`):
 
-## Domanda del prossimo esperimento
+## 3. Experimental Question (`STATE 3`)
 
-- Fatto già verificato:
-- Ipotesi e alternativa plausibile:
-- Perché il test precedente non risponde già alla domanda:
-- Prerequisiti e comando esatto, dopo ispezione degli effetti collaterali:
-- Timeout misurato sull’orologio, limiti di dimensione e cleanup:
-- Criterio di successo e di fallimento:
-- Azione fisica e segnale locale/chat che la richiede:
+- **Verified prerequisite fact**:
+- **Hypothesis & plausible alternative**:
+- **Why previous runs do not answer this question**:
+- **Exact command / `plan.json` entry & inspected side effects**:
+- **Wall-clock timeout, output bounds, and cleanup**:
+- **Observable success & failure criteria**:
+- **Physical action required from user (if any)**:
 
-## Esito
+## 4. Observed Outcome (`STATE 4`)
 
-- Orari, exit code, status applicativi, chiusura e disponibilità successiva:
-- Artefatti privati e hash, senza copiare contenuti sensibili nel report pubblico:
-- Evidenza, interpretazione, confidenza e limiti:
-- Prossimo passo riproducibile; processi ancora attivi:
+- **Timestamps, exit code, vendor status codes, and cleanup confirmation**:
+- **Private artifact paths & SHA-256 hashes (no raw secrets in public docs)**:
+- **Facts observed vs. interpretation & confidence**:
+- **Next reproducible step**:
 
-## Valutazione biometrica, se raggiunta
+## 5. Biometric Evaluation (When Reached)
 
-- Appoggi di enrollment distinti e separati da rimozione osservata:
-- Appoggi di verifica esclusi dall’enrollment e dalla scelta della soglia:
-- Dita/persone partecipanti (etichette pseudonime locali):
-- Matcher, versione pipeline, numero di template e soglia fissata:
-- Tentativi genuini, dita diverse, rifiuti, accettazioni e timeout:
-- Tempi separati per apertura, attesa, cattura, confronto e chiusura:
-- Persistenza, riavvio, sospensione, cancellazione e fallback password:
+- **Enrollment stages** (distinct touches separated by verified lift):
+- **Held-out verification set** (excluded from enrollment and threshold selection):
+- **Matcher, pipeline revision, template count, and fixed threshold**:
+- **Genuine vs. impostor attempts, retries, and timeouts**:
+- **Latency breakdown** (open/calibration, touch-to-result, matching, close):
+- **Recovery checks** (cancellation/reopen, reboot, suspend/resume):

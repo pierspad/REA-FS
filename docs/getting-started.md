@@ -62,7 +62,7 @@ python3 scripts/open-panel.py
 Python 3 is required; building the GUI also needs Rust/Cargo, a C toolchain and
 Linux graphics development dependencies. A current compiled GUI needs no Cargo.
 On a fresh checkout the launcher supplies the [starter plan](../examples/panel-plan.json).
-Choose **Prova il pannello**: it is a simulation, not a fingerprint test. Existing
+Choose **Try the panel**: it is a simulation, not a fingerprint test. Existing
 plans are preserved; do not overwrite a session's hardware plan with an example.
 Full offline checks also require the driver build dependencies and NumPy.
 
