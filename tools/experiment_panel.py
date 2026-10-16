@@ -162,8 +162,8 @@ class EventWriter:
         self._atomic_write(self.run_dir/'summary.json', content)
         self._atomic_write(self.session_dir/'latest-run.json', content)
         self._atomic_write(self.run_dir/'handoff.txt',
-            f"Leggi {self.session_dir}/runs-index.jsonl, poi {self.run_dir}/plan.json, {self.run_dir}/events.jsonl e {self.run_dir}/summary.json. "
-            "Riprendi il checkpoint; distingui simulazione e hardware. Analizza l’esito prima di ripetere la prova.\n")
+            f"Read {self.session_dir}/runs-index.jsonl, then {self.run_dir}/plan.json, {self.run_dir}/events.jsonl and {self.run_dir}/summary.json. "
+            "Resume the checkpoint; distinguish simulation from hardware. Analyze the outcome before repeating the experiment.\n")
 
     def _append_index(self, event):
         started = self.started_event or {}
@@ -314,11 +314,11 @@ def _fprint_state(messages, stop, object_path):
                 if current != previous:
                     messages.put(('device', current, b'')); previous = current
             elif not reported_unavailable:
-                messages.put(('limitation', 'Proprietà di contatto non disponibili: attendi gli eventi del comando o interrompi la prova', b''))
+                messages.put(('limitation', 'Contact properties unavailable: wait for command events or stop the run', b''))
                 reported_unavailable = True
         except (OSError, subprocess.TimeoutExpired):
             if not reported_unavailable:
-                messages.put(('limitation', 'Lettura dello stato D-Bus non riuscita', b''))
+                messages.put(('limitation', 'Failed to read D-Bus device state', b''))
                 reported_unavailable = True
         stop.wait(.08)
 

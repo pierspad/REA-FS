@@ -150,7 +150,7 @@ pub fn spawn(
                 }
                 if invalid {
                     let _ = tx.send(Message::Error(
-                        "Evento backend non valido: chiusura richiesta".into(),
+                        "Invalid backend event: closing session".into(),
                     ));
                 }
                 // Closing stdin requests bounded cleanup even if a protocol failure occurred.

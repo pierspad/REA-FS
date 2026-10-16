@@ -2,12 +2,12 @@
   "schema_version": 1,
   "plan_id": "rea-fs-starter",
   "revision": 1,
-  "title": "REA-FS · pannello esperimenti",
+  "title": "REA-FS · Experiment panel",
   "experiments": [
     {
       "id": "simulation",
-      "title": "Prova il pannello",
-      "instructions": "Simulazione: il sensore non viene aperto. Osserva gli stati oppure premi Interrompi.",
+      "title": "Try the panel",
+      "instructions": "Simulation: no sensor is opened. Watch the state transitions or click Stop.",
       "argv": [
         "python3",
         "scripts/experiment-panel.py",
@@ -17,12 +17,12 @@
       "timeout_seconds": 20,
       "adapter": "simulation",
       "category": "simulation",
-      "next_steps": "I risultati sono salvati. Torna alla chat e chiedi all’agente di continuare: può trovare questa prova da latest-run.json senza copiare l’output."
+      "next_steps": "Results are saved. Return to chat and ask the agent to continue: it reads this run from latest-run.json without copying output."
     },
     {
       "id": "preflight",
-      "title": "Controlla l’ambiente",
-      "instructions": "Raccoglie metadati locali in un file privato. Non toccare il sensore.",
+      "title": "Check environment",
+      "instructions": "Collects local passive metadata into a private file. Do not touch the sensor.",
       "argv": [
         "python3",
         "scripts/rea-fs.py",
@@ -34,12 +34,12 @@
       "timeout_seconds": 180,
       "adapter": "plain",
       "category": "diagnostics",
-      "next_steps": "I risultati sono salvati. Torna alla chat e chiedi all’agente di continuare: può trovare questa prova da latest-run.json senza copiare l’output."
+      "next_steps": "Results are saved. Return to chat and ask the agent to continue: it reads this run from latest-run.json without copying output."
     },
     {
       "id": "offline-checks",
-      "title": "Esegui test e build",
-      "instructions": "Test offline e compilazione: nessuna impronta acquisita. Richiede dipendenze di sviluppo già installate.",
+      "title": "Run offline tests & builds",
+      "instructions": "Offline tests and builds: no fingerprints are captured. Requires development dependencies installed.",
       "argv": [
         "python3",
         "scripts/rea-fs.py",
@@ -50,7 +50,7 @@
       "adapter": "plain",
       "category": "local_preparation",
       "raw_log": true,
-      "next_steps": "I risultati sono salvati. Torna alla chat e chiedi all’agente di continuare: può trovare questa prova da latest-run.json senza copiare l’output."
+      "next_steps": "Results are saved. Return to chat and ask the agent to continue: it reads this run from latest-run.json without copying output."
     }
   ]
 }

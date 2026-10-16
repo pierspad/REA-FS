@@ -23,13 +23,13 @@ const AMBER: Color32 = Color32::from_rgb(251, 191, 36);
 const RED: Color32 = Color32::from_rgb(248, 113, 113);
 const RED_DARK: Color32 = Color32::from_rgb(185, 28, 28);
 
-const SIDES: [(&str, &str); 2] = [("left", "Mano sinistra"), ("right", "Mano destra")];
+const SIDES: [(&str, &str); 2] = [("left", "Left hand"), ("right", "Right hand")];
 const FINGERS: [(&str, &str); 5] = [
-    ("thumb", "Pollice"),
-    ("index-finger", "Indice"),
-    ("middle-finger", "Medio"),
-    ("ring-finger", "Anulare"),
-    ("little-finger", "Mignolo"),
+    ("thumb", "Thumb"),
+    ("index-finger", "Index"),
+    ("middle-finger", "Middle"),
+    ("ring-finger", "Ring"),
+    ("little-finger", "Little"),
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -91,7 +91,21 @@ fn read_plan_contents(session: &Path) -> Option<Vec<u8>> {
     Some(contents)
 }
 
-/// "right-index-finger" -> "Indice destro".
+/// Format paths relative to the repository root (or `~`) so they stay compact in the UI.
+fn display_path(path: &Path, root: &Path) -> String {
+    if let Ok(rel) = path.strip_prefix(root) {
+        let s = rel.display().to_string();
+        return if s.is_empty() { ".".to_string() } else { s };
+    }
+    if let Ok(home) = std::env::var("HOME") {
+        if let Ok(rel) = path.strip_prefix(&home) {
+            return format!("~/{}", rel.display());
+        }
+    }
+    path.display().to_string()
+}
+
+/// "right-index-finger" -> "Right index".
 fn finger_label(id: &str) -> String {
     let (side, rest) = id.split_once('-').unwrap_or(("", id));
     let name = FINGERS
@@ -100,8 +114,8 @@ fn finger_label(id: &str) -> String {
         .map(|(_, v)| *v)
         .unwrap_or(rest);
     match side {
-        "left" => format!("{name} sinistro"),
-        "right" => format!("{name} destro"),
+        "left" => format!("Left {}", name.to_lowercase()),
+        "right" => format!("Right {}", name.to_lowercase()),
         _ => name.to_string(),
     }
 }
@@ -117,7 +131,7 @@ fn has_finger(task: &Experiment) -> bool {
     task.parameters.iter().any(|p| p == "finger")
 }
 
-/// Plan entries that power the dedicated fingerprint tabs; everything else lives in Strumenti.
+/// Plan entries that power the dedicated fingerprint tabs; everything else lives in Tools.
 fn find(plan: &Envelope, tab: Tab) -> Option<usize> {
     plan.plan.experiments.iter().position(|t| match tab {
         Tab::Verify => t.adapter == "fprintd" && program(t) == "fprintd-verify",
@@ -186,12 +200,12 @@ fn draw_icon(painter: &egui::Painter, icon: Icon, c: Pos2, color: Color32) {
             ));
         }
         Icon::Trash => {
-            painter.line_segment([c + Vec2::new(-7.0, -5.0), c + Vec2::new(7.0, -5.0)], s);
-            painter.line_segment([c + Vec2::new(-2.5, -7.5), c + Vec2::new(2.5, -7.5)], s);
-            let body = Rect::from_min_max(c + Vec2::new(-5.0, -4.0), c + Vec2::new(5.0, 8.0));
+            painter.line_segment([c + Vec2::new(-6.5, -4.5), c + Vec2::new(6.5, -4.5)], s);
+            painter.line_segment([c + Vec2::new(-2.5, -6.8), c + Vec2::new(2.5, -6.8)], s);
+            let body = Rect::from_min_max(c + Vec2::new(-4.8, -3.5), c + Vec2::new(4.8, 7.0));
             painter.rect_stroke(body, 1.5, s, egui::StrokeKind::Middle);
-            for x in [-2.0, 2.0] {
-                painter.line_segment([c + Vec2::new(x, -1.0), c + Vec2::new(x, 5.5)], Stroke::new(1.5, color));
+            for x in [-1.8, 1.8] {
+                painter.line_segment([c + Vec2::new(x, -0.8), c + Vec2::new(x, 4.8)], Stroke::new(1.5, color));
             }
         }
         Icon::Check => {
@@ -244,17 +258,23 @@ fn button(ui: &mut egui::Ui, icon: Option<Icon>, label: &str, fill: Color32, siz
         painter.rect_stroke(rect, 10.0, Stroke::new(1.0, BORDER), egui::StrokeKind::Inside);
     }
     let color = if enabled { Color32::WHITE } else { MUTED };
-    let galley = painter.layout_no_wrap(label.to_string(), FontId::proportional(15.5), color);
-    let icon_width = if icon.is_some() { 24.0 } else { 0.0 };
-    let start = rect.center().x - (icon_width + galley.size().x) / 2.0;
-    if let Some(icon) = icon {
-        draw_icon(painter, icon, Pos2::new(start + 8.0, rect.center().y), color);
+    if label.is_empty() {
+        if let Some(icon) = icon {
+            draw_icon(painter, icon, rect.center(), color);
+        }
+    } else {
+        let galley = painter.layout_no_wrap(label.to_string(), FontId::proportional(15.5), color);
+        let icon_width = if icon.is_some() { 24.0 } else { 0.0 };
+        let start = rect.center().x - (icon_width + galley.size().x) / 2.0;
+        if let Some(icon) = icon {
+            draw_icon(painter, icon, Pos2::new(start + 8.0, rect.center().y), color);
+        }
+        painter.galley(
+            Pos2::new(start + icon_width, rect.center().y - galley.size().y / 2.0),
+            galley,
+            color,
+        );
     }
-    painter.galley(
-        Pos2::new(start + icon_width, rect.center().y - galley.size().y / 2.0),
-        galley,
-        color,
-    );
     if enabled {
         response.on_hover_cursor(CursorIcon::PointingHand)
     } else {
@@ -369,12 +389,12 @@ fn simulation_visual(ui: &mut egui::Ui, completed: u64) {
 /// Big, unambiguous instruction derived from observed device events.
 fn phase_banner(ui: &mut egui::Ui, phase: Phase, hint: &str, remaining: f64, verifying: bool) {
     let (title, sub, color) = match phase {
-        Phase::Preparing => ("NON TOCCARE", "Apertura e calibrazione del sensore…", AMBER),
-        Phase::Wait => ("ATTENDI", "Il sensore non chiede ancora il dito.", AMBER),
-        Phase::Touch => ("APPOGGIA IL DITO", "Appoggialo piatto al centro del lettore.", SKY),
-        Phase::Hold if verifying => ("TIENI FERMO", "Riconoscimento in corso…", GREEN),
-        Phase::Hold => ("TIENI FERMO", "Lettura in corso: non muovere il dito.", GREEN),
-        Phase::Lift => ("SOLLEVA IL DITO", "Staccalo completamente, poi riappoggialo.", AMBER),
+        Phase::Preparing => ("DO NOT TOUCH", "Opening and calibrating sensor…", AMBER),
+        Phase::Wait => ("WAIT", "The sensor is not ready for a touch yet.", AMBER),
+        Phase::Touch => ("PLACE YOUR FINGER", "Place it flat in the center of the reader.", SKY),
+        Phase::Hold if verifying => ("HOLD STILL", "Matching fingerprint…", GREEN),
+        Phase::Hold => ("HOLD STILL", "Scanning in progress: keep your finger steady.", GREEN),
+        Phase::Lift => ("LIFT YOUR FINGER", "Lift it completely, then touch again when asked.", AMBER),
         Phase::Idle => return,
     };
     ui.label(RichText::new(title).size(25.0).color(color).strong());
@@ -383,7 +403,7 @@ fn phase_banner(ui: &mut egui::Ui, phase: Phase, hint: &str, remaining: f64, ver
         ui.label(RichText::new(hint).size(14.0).color(AMBER).strong());
     }
     if remaining > 0.0 {
-        ui.label(RichText::new(format!("Tempo massimo residuo: {:.0} s", remaining)).size(12.0).color(MUTED));
+        ui.label(RichText::new(format!("Time remaining: {:.0} s", remaining)).size(12.0).color(MUTED));
     }
 }
 
@@ -482,7 +502,7 @@ impl Panel {
         let state = self.state_mut(tab);
         *state = State::default();
         state.active = true;
-        state.status = "Avvio in corso…".into();
+        state.status = "Starting…".into();
         let (controls, handle) = runner::spawn(
             self.root.clone(),
             self.session.clone(),
@@ -517,7 +537,7 @@ impl Panel {
         }
         if let Some(tx) = &self.controls {
             let ok = tx.send(runner::control("note", Some(&text))).is_ok();
-            self.note_feedback = Some((Instant::now(), if ok { Ok(()) } else { Err("Backend non raggiungibile".into()) }));
+            self.note_feedback = Some((Instant::now(), if ok { Ok(()) } else { Err("Backend unreachable".into()) }));
         } else {
             runner::note(self.root.clone(), self.session.clone(), text, self.tx.clone(), ctx.clone());
         }
@@ -577,7 +597,7 @@ impl Panel {
                 Message::Error(e) => {
                     self.error = e;
                     if let Some(tab) = self.running {
-                        self.state_mut(tab).status = "Errore durante l'operazione".into();
+                        self.state_mut(tab).status = "Operation error".into();
                     }
                 }
                 Message::Event(e) => {
@@ -652,10 +672,10 @@ impl Panel {
     fn tabs_ui(&mut self, ui: &mut egui::Ui, ctx: &egui::Context, envelope: &Envelope) {
         let has_any_tools = envelope.plan.experiments.iter().enumerate().any(|(i, _)| is_tool(envelope, i));
         let entries = [
-            (Tab::Verify, "Verifica", Icon::Finger),
-            (Tab::Enroll, "Registra", Icon::Play),
-            (Tab::Manage, "Impronte", Icon::Trash),
-            (Tab::Tools, "Strumenti", Icon::Note),
+            (Tab::Verify, "Verify", Icon::Finger),
+            (Tab::Enroll, "Enroll", Icon::Play),
+            (Tab::Manage, "Fingerprints", Icon::Trash),
+            (Tab::Tools, "Tools", Icon::Note),
         ];
         ui.horizontal(|ui| {
             for (tab, label, icon) in entries {
@@ -668,7 +688,7 @@ impl Panel {
                 }
                 let selected = self.tab == tab;
                 let fill = if selected { SKY_DARK } else { CARD_HI };
-                if button(ui, Some(icon), label, fill, Vec2::new(140.0, 40.0), !self.busy() || selected).clicked() {
+                if button(ui, Some(icon), label, fill, Vec2::new(145.0, 40.0), !self.busy() || selected).clicked() {
                     self.switch_tab(ctx, tab);
                 }
             }
@@ -676,11 +696,13 @@ impl Panel {
     }
 
     fn log_ui(&self, ui: &mut egui::Ui, envelope: &Envelope) {
-        ui.collapsing("Log per l’agente", |ui| {
-            ui.label(RichText::new("Ogni prova è salvata automaticamente nei file di sessione.").color(MUTED).size(12.5));
-            ui.monospace(self.session.join("runs-index.jsonl").display().to_string());
-            ui.monospace(self.session.join("latest-run.json").display().to_string());
-            ui.label(RichText::new(format!("Piano: {} · revisione {}", envelope.plan.plan_id, envelope.plan.revision)).size(12.0));
+        ui.collapsing("Session logs", |ui| {
+            ui.label(RichText::new("Runs are saved automatically in the local session folder.").color(MUTED).size(12.5));
+            let idx = self.session.join("runs-index.jsonl");
+            let latest = self.session.join("latest-run.json");
+            ui.monospace(display_path(&idx, &self.root)).on_hover_text(idx.display().to_string());
+            ui.monospace(display_path(&latest, &self.root)).on_hover_text(latest.display().to_string());
+            ui.label(RichText::new(format!("Plan: {} · rev {}", envelope.plan.plan_id, envelope.plan.revision)).size(12.0));
         });
     }
 
@@ -711,12 +733,12 @@ impl Panel {
         let mut trigger_stop = false;
 
         ui.columns(2, |cols| {
-            // Colonna Sinistra: Card Verifica con scanner e pulsanti integrati
+            // Left column: Verify card with scanner and integrated buttons
             let left = &mut cols[0];
             card(left, |ui| {
-                ui.label(RichText::new("Verifica automatica").size(22.0).strong());
+                ui.label(RichText::new("Verify fingerprint").size(22.0).strong());
                 ui.label(
-                    RichText::new("Lascia libero il sensore durante l’apertura, poi appoggia il dito quando richiesto.")
+                    RichText::new("Keep the sensor clear while opening, then touch when prompted.")
                         .size(13.5)
                         .color(MUTED),
                 );
@@ -727,21 +749,21 @@ impl Panel {
                     if active {
                         phase_banner(ui, phase, &hint, remaining, true);
                     } else if let Some(matched) = result {
-                        let (title, color) = if matched { ("Impronta riconosciuta", GREEN) } else { ("Impronta non riconosciuta", RED) };
+                        let (title, color) = if matched { ("Fingerprint recognized", GREEN) } else { ("Fingerprint not recognized", RED) };
                         ui.label(RichText::new(title).size(22.0).color(color).strong());
                     } else if !terminal.is_empty() {
                         ui.label(RichText::new(&status).size(19.0).color(AMBER).strong());
                         ui.label(RichText::new(&detail).size(13.0).color(MUTED));
                     } else {
-                        ui.label(RichText::new("Pronto").size(19.0).color(TEXT).strong());
+                        ui.label(RichText::new("Ready").size(19.0).color(TEXT).strong());
                     }
                     ui.add_space(8.0);
                     if running {
-                        if button(ui, Some(Icon::Stop), "Interrompi", RED_DARK, Vec2::new(170.0, 40.0), true).clicked() {
+                        if button(ui, Some(Icon::Stop), "Stop", RED_DARK, Vec2::new(170.0, 40.0), true).clicked() {
                             trigger_stop = true;
                         }
                     } else {
-                        let label = if terminal.is_empty() { "Verifica impronta" } else { "Verifica di nuovo" };
+                        let label = if terminal.is_empty() { "Verify fingerprint" } else { "Verify again" };
                         let can = !busy && !has_error;
                         if button(ui, Some(Icon::Play), label, SKY_DARK, Vec2::new(210.0, 40.0), can).clicked() {
                             trigger_start = true;
@@ -750,56 +772,56 @@ impl Panel {
                 });
             });
 
-            // Colonna Destra: Dettagli esito e metriche + Nota + Log
+            // Right column: Result details & metrics + Note + Logs
             let right = &mut cols[1];
             card(right, |ui| {
-                ui.label(RichText::new("Dettagli dell’esito e metriche").size(17.0).strong());
+                ui.label(RichText::new("Result details & metrics").size(17.0).strong());
                 ui.add_space(4.0);
                 if !active && result.is_some() {
                     let finger = if !verify_finger.is_empty() && verify_finger != "any" {
                         finger_label(&verify_finger)
                     } else if result == Some(true) {
                         match self.enrolled.as_deref() {
-                            Some([only]) => format!("{} (unico dito registrato)", finger_label(only)),
-                            _ => "Una delle dita registrate: fprintd non comunica quale".into(),
+                            Some([only]) => format!("{} (only enrolled finger)", finger_label(only)),
+                            _ => "One of the enrolled fingers (fprintd does not report which)".into(),
                         }
                     } else {
-                        "Nessuna corrispondenza".into()
+                        "No match".into()
                     };
                     egui::Grid::new("verify-details").num_columns(2).spacing([18.0, 6.0]).show(ui, |ui| {
-                        ui.label(RichText::new("Dito").color(MUTED));
+                        ui.label(RichText::new("Finger").color(MUTED));
                         ui.label(RichText::new(finger).strong());
                         ui.end_row();
                         if let Some(open) = op_started_at {
-                            ui.label(RichText::new("Apertura sensore").color(MUTED));
-                            ui.label(format!("{open:.1} s (dall'avvio a «pronto»)"));
+                            ui.label(RichText::new("Sensor open").color(MUTED));
+                            ui.label(format!("{open:.1} s (start to ready)"));
                             ui.end_row();
                         }
                         if let Some(match_time) = seconds(first_present_at, result_at) {
-                            ui.label(RichText::new("Dal contatto all’esito").color(MUTED));
+                            ui.label(RichText::new("Touch to result").color(MUTED));
                             ui.label(format!("{match_time:.1} s"));
                             ui.end_row();
                         }
                         if let Some(total) = result_at.or(ended_at) {
-                            ui.label(RichText::new("Totale").color(MUTED));
+                            ui.label(RichText::new("Total").color(MUTED));
                             ui.label(format!("{total:.1} s"));
                             ui.end_row();
                         }
                     });
                 } else {
-                    ui.label(RichText::new("In attesa di avvio della prova.").size(13.5).color(MUTED));
+                    ui.label(RichText::new("Waiting for a verification run.").size(13.5).color(MUTED));
                     ui.add_space(4.0);
                     if let Some(enrolled) = &self.enrolled {
                         if !enrolled.is_empty() {
                             let names: Vec<String> = enrolled.iter().map(|id| finger_label(id)).collect();
-                            ui.label(RichText::new(format!("Dita registrate nel sistema ({}):", enrolled.len())).size(13.5).strong());
+                            ui.label(RichText::new(format!("Enrolled fingers ({}):", enrolled.len())).size(13.5).strong());
                             ui.label(RichText::new(names.join(", ")).size(13.0).color(SKY));
                         } else {
-                            ui.label(RichText::new("Nessun dito attualmente registrato.").size(13.0).color(AMBER));
+                            ui.label(RichText::new("No fingers currently enrolled.").size(13.0).color(AMBER));
                         }
                     } else {
-                        ui.label(RichText::new("Istruzioni rapide:").size(13.5).strong());
-                        ui.label(RichText::new("Appoggia il polpastrello piatto al centro del lettore quando vedi «APPOGGIA IL DITO».").size(13.0).color(MUTED));
+                        ui.label(RichText::new("Quick tip:").size(13.5).strong());
+                        ui.label(RichText::new("Place your finger flat in the center of the reader when prompted.").size(13.0).color(MUTED));
                     }
                 }
             });
@@ -843,10 +865,10 @@ impl Panel {
         let mut new_finger = None;
 
         ui.columns(2, |cols| {
-            // Colonna Sinistra: Scelta mano e dito + Nota per l'agente + Log
+            // Left column: Hand & finger selection + Note + Logs
             let left = &mut cols[0];
             card(left, |ui| {
-                ui.label(RichText::new("1 · Scegli la mano").size(16.0).strong());
+                ui.label(RichText::new("1 · Select hand").size(16.0).strong());
                 ui.horizontal(|ui| {
                     for (i, (_, label)) in SIDES.iter().enumerate() {
                         if choice(ui, label, "", self.side == i, Vec2::new(165.0, 44.0), enabled).clicked() {
@@ -855,12 +877,12 @@ impl Panel {
                     }
                 });
                 ui.add_space(6.0);
-                ui.label(RichText::new("2 · Scegli il dito").size(16.0).strong());
+                ui.label(RichText::new("2 · Select finger").size(16.0).strong());
                 ui.horizontal_wrapped(|ui| {
                     for (i, (key, label)) in FINGERS.iter().enumerate() {
                         let id = format!("{}-{key}", SIDES[self.side].0);
                         let done = self.enrolled.as_ref().is_some_and(|e| e.contains(&id));
-                        if choice(ui, label, if done { "registrato" } else { "" }, self.finger == i, Vec2::new(150.0, 46.0), enabled).clicked() {
+                        if choice(ui, label, if done { "enrolled" } else { "" }, self.finger == i, Vec2::new(150.0, 46.0), enabled).clicked() {
                             new_finger = Some(i);
                         }
                     }
@@ -871,25 +893,25 @@ impl Panel {
             left.add_space(4.0);
             self.log_ui(left, envelope);
 
-            // Colonna Destra: Registrazione
+            // Right column: Enrollment scanner & progress
             let right = &mut cols[1];
             card(right, |ui| {
                 ui.vertical_centered(|ui| {
                     let title = if enroll_finger.is_empty() { finger_label(&selected_id) } else { finger_label(&enroll_finger) };
-                    ui.label(RichText::new(format!("3 · Registra: {title}")).size(20.0).strong());
+                    ui.label(RichText::new(format!("3 · Enroll: {title}")).size(20.0).strong());
                     ui.add_space(4.0);
                     fingerprint_scanner(ui, phase, if active || terminal.is_empty() { None } else { Some(ok) });
                     ui.add_space(4.0);
                     if active {
                         phase_banner(ui, phase, &hint, remaining, false);
                     } else if ok {
-                        ui.label(RichText::new("Registrazione completata").size(22.0).color(GREEN).strong());
+                        ui.label(RichText::new("Enrollment completed").size(22.0).color(GREEN).strong());
                     } else if !terminal.is_empty() {
                         ui.label(RichText::new(&status).size(19.0).color(RED).strong());
                         ui.label(RichText::new(&detail).size(13.0).color(MUTED));
                     } else {
                         ui.label(
-                            RichText::new("Premi «Registra»: ti dirò io quando appoggiare e quando sollevare il dito.")
+                            RichText::new("Click \"Enroll\": the panel will tell you when to touch and when to lift.")
                                 .size(13.5)
                                 .color(MUTED),
                         );
@@ -900,22 +922,22 @@ impl Panel {
                             egui::ProgressBar::new((completed as f32 / total as f32).min(1.0))
                                 .fill(SKY_DARK)
                                 .desired_width(280.0)
-                                .text(format!("{} di {} appoggi", completed, total)),
+                                .text(format!("{} of {} touches", completed, total)),
                         );
                     }
                     ui.add_space(8.0);
                     if running {
-                        if button(ui, Some(Icon::Stop), "Interrompi", RED_DARK, Vec2::new(170.0, 40.0), true).clicked() {
+                        if button(ui, Some(Icon::Stop), "Stop", RED_DARK, Vec2::new(170.0, 40.0), true).clicked() {
                             trigger_stop = true;
                         }
                     } else {
-                        let label = if already { "Sostituisci impronta" } else { "Registra" };
+                        let label = if already { "Replace fingerprint" } else { "Enroll" };
                         let can = enabled && !has_error;
                         if button(ui, Some(Icon::Play), label, SKY_DARK, Vec2::new(210.0, 40.0), can).clicked() {
                             trigger_start = true;
                         }
                         if already {
-                            ui.label(RichText::new("Questo dito è già registrato: verrà sostituito.").color(AMBER).size(12.5));
+                            ui.label(RichText::new("This finger is already enrolled and will be replaced.").color(AMBER).size(12.5));
                         }
                     }
                 });
@@ -952,13 +974,13 @@ impl Panel {
         let mut clear_confirm = false;
 
         ui.columns(2, |cols| {
-            // Colonna Sinistra: Lista impronte registrate con cestino
+            // Left column: Enrolled fingerprints list with red centered trash button
             let left = &mut cols[0];
             card(left, |ui| {
                 ui.horizontal(|ui| {
-                    ui.label(RichText::new("Impronte registrate").size(20.0).strong());
+                    ui.label(RichText::new("Enrolled fingerprints").size(20.0).strong());
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if button(ui, Some(Icon::Refresh), "Aggiorna", CARD_HI, Vec2::new(120.0, 34.0), !busy).clicked() {
+                        if button(ui, Some(Icon::Refresh), "Refresh", CARD_HI, Vec2::new(120.0, 34.0), !busy).clicked() {
                             trigger_refresh = true;
                         }
                     });
@@ -966,28 +988,28 @@ impl Panel {
                 ui.add_space(6.0);
                 match enrolled {
                     None if manage_active => {
-                        ui.label(RichText::new("Lettura dell’elenco…").color(MUTED));
+                        ui.label(RichText::new("Reading enrolled fingers…").color(MUTED));
                     }
                     None => {
-                        ui.label(RichText::new("Elenco non ancora letto. Premi «Aggiorna».").color(MUTED));
+                        ui.label(RichText::new("List not loaded yet. Click \"Refresh\".").color(MUTED));
                         if !manage_terminal.is_empty() {
                             ui.label(RichText::new(&manage_detail).color(RED));
                         }
                     }
                     Some(list) if list.is_empty() => {
-                        ui.label(RichText::new("Nessuna impronta registrata per questo utente.").color(MUTED));
+                        ui.label(RichText::new("No fingerprints enrolled for this user.").color(MUTED));
                     }
                     Some(list) => {
                         for id in list {
                             egui::Frame::new()
-                                .inner_margin(8)
+                                .inner_margin(10)
                                 .corner_radius(8.0)
                                 .fill(CARD_HI)
                                 .stroke(Stroke::new(1.0, BORDER))
                                 .show(ui, |ui| {
                                     ui.set_width(ui.available_width());
                                     ui.horizontal(|ui| {
-                                        let (r, _) = ui.allocate_exact_size(Vec2::splat(24.0), Sense::hover());
+                                        let (r, _) = ui.allocate_exact_size(Vec2::splat(28.0), Sense::hover());
                                         draw_icon(ui.painter(), Icon::Finger, r.center(), SKY);
                                         ui.vertical(|ui| {
                                             ui.label(RichText::new(finger_label(&id)).size(15.0).strong());
@@ -995,19 +1017,19 @@ impl Panel {
                                         });
                                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                                             let Some(_) = delete else {
-                                                ui.label(RichText::new("Eliminazione non prevista").color(MUTED));
+                                                ui.label(RichText::new("Deletion unavailable").color(MUTED));
                                                 return;
                                             };
                                             if confirm_delete_current.as_deref() == Some(id.as_str()) {
-                                                if button(ui, Some(Icon::Cross), "Annulla", CARD_HI, Vec2::new(80.0, 30.0), !busy).clicked() {
+                                                if button(ui, Some(Icon::Cross), "Cancel", CARD_HI, Vec2::new(86.0, 32.0), !busy).clicked() {
                                                     clear_confirm = true;
                                                 }
-                                                if button(ui, Some(Icon::Trash), "Elimina", RED_DARK, Vec2::new(90.0, 30.0), !busy).clicked() {
+                                                if button(ui, Some(Icon::Trash), "Delete", RED_DARK, Vec2::new(92.0, 32.0), !busy).clicked() {
                                                     delete_target = Some(id.clone());
                                                 }
-                                                ui.label(RichText::new("Confermi?").color(AMBER).strong());
-                                            } else if button(ui, Some(Icon::Trash), "", CARD, Vec2::new(36.0, 30.0), !busy)
-                                                .on_hover_text("Elimina questa impronta")
+                                                ui.label(RichText::new("Delete?").color(AMBER).strong());
+                                            } else if button(ui, Some(Icon::Trash), "", RED_DARK, Vec2::new(36.0, 32.0), !busy)
+                                                .on_hover_text("Delete this fingerprint")
                                                 .clicked()
                                             {
                                                 new_confirm = Some(id.clone());
@@ -1022,22 +1044,22 @@ impl Panel {
                     let ok = manage_terminal == "completed";
                     ui.label(
                         RichText::new(if ok {
-                            format!("{} eliminata.", finger_label(&manage_finger))
+                            format!("{} deleted.", finger_label(&manage_finger))
                         } else {
-                            format!("Eliminazione non riuscita: {}", manage_detail)
+                            format!("Deletion failed: {}", manage_detail)
                         })
                         .color(if ok { GREEN } else { RED }),
                     );
                 }
             });
 
-            // Colonna Destra: Nota per l'agente e Log
+            // Right column: Fingerprint management info + Note + Logs
             let right = &mut cols[1];
             card(right, |ui| {
-                ui.label(RichText::new("Gestione Impronte").size(17.0).strong());
+                ui.label(RichText::new("Fingerprint management").size(17.0).strong());
                 ui.add_space(4.0);
                 ui.label(
-                    RichText::new("Le impronte registrate sono gestite direttamente dal demone di sistema fprintd e consentono l'autenticazione biometrica (KDE Lockscreen, PAM, sudo).")
+                    RichText::new("Enrolled fingerprints are stored by the system fprintd daemon and used for desktop unlock, PAM, and sudo authentication.")
                         .size(13.0)
                         .color(MUTED),
                 );
@@ -1069,7 +1091,7 @@ impl Panel {
     fn tools_ui(&mut self, ui: &mut egui::Ui, ctx: &egui::Context, envelope: &Envelope) {
         let tools: Vec<usize> = (0..envelope.plan.experiments.len()).filter(|i| is_tool(envelope, *i)).collect();
         if tools.is_empty() {
-            card(ui, |ui| ui.label(RichText::new("Nessun altro esperimento nel piano.").color(MUTED)));
+            card(ui, |ui| ui.label(RichText::new("No additional tools in the active plan.").color(MUTED)));
             return;
         }
         if !tools.contains(&self.selected_tool) {
@@ -1115,11 +1137,11 @@ impl Panel {
                 ui.label(RichText::new(&task.title).size(20.0).strong());
                 ui.label(
                     RichText::new(if sim {
-                        "Dimostrazione simulata · nessun sensore aperto"
+                        "Simulated demo · no sensor opened"
                     } else if fprintd {
-                        "Sensore reale via fprintd"
+                        "Hardware sensor via fprintd"
                     } else {
-                        "Comando locale"
+                        "Local command"
                     })
                     .color(if sim { AMBER } else { SKY })
                     .strong(),
@@ -1149,12 +1171,12 @@ impl Panel {
                     }
                     ui.add_space(6.0);
                     if running {
-                        if button(ui, Some(Icon::Stop), "Interrompi", RED_DARK, Vec2::new(170.0, 40.0), true).clicked() {
+                        if button(ui, Some(Icon::Stop), "Stop", RED_DARK, Vec2::new(170.0, 40.0), true).clicked() {
                             trigger_stop = true;
                         }
                     } else {
                         let can = !busy && !has_error && !has_f;
-                        let label = if is_empty_run { "Esegui" } else { "Esegui di nuovo" };
+                        let label = if is_empty_run { "Run" } else { "Run again" };
                         if button(ui, Some(Icon::Play), label, SKY_DARK, Vec2::new(200.0, 40.0), can).clicked() {
                             trigger_start = true;
                         }
@@ -1170,14 +1192,16 @@ impl Panel {
 
             let right = &mut cols[1];
             card(right, |ui| {
-                ui.label(RichText::new("Dettagli tecnici").size(17.0).strong());
+                ui.label(RichText::new("Technical details").size(17.0).strong());
                 ui.add_space(4.0);
                 let command = task.argv.iter().map(|a| shell_quote(a)).collect::<Vec<_>>().join(" ");
                 ui.monospace(&command);
-                ui.label(RichText::new(format!("Cartella: {}", self.root.join(&task.cwd).display())).size(12.5));
-                ui.label(RichText::new(format!("Categoria: {} · timeout {} s", task.category, task.timeout_seconds)).size(12.5));
+                let cwd_path = self.root.join(&task.cwd);
+                ui.label(RichText::new(format!("Working directory: {}", display_path(&cwd_path, &self.root))).size(12.5))
+                    .on_hover_text(cwd_path.display().to_string());
+                ui.label(RichText::new(format!("Category: {} · timeout {} s", task.category, task.timeout_seconds)).size(12.5));
                 ui.add_space(4.0);
-                if button(ui, Some(Icon::Note), "Copia comando", CARD_HI, Vec2::new(150.0, 30.0), true).clicked() {
+                if button(ui, Some(Icon::Note), "Copy command", CARD_HI, Vec2::new(150.0, 30.0), true).clicked() {
                     ctx.copy_text(command);
                     self.copy_requested = Some(Instant::now());
                 }
@@ -1203,19 +1227,19 @@ impl Panel {
     fn note_ui(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
         let mut quick_note = None;
         card(ui, |ui| {
-            ui.label(RichText::new("Nota per l’agente").size(16.0).strong());
+            ui.label(RichText::new("Note for agent").size(16.0).strong());
             ui.label(
-                RichText::new("Facoltativa: finisce nel log della prova in corso o conclusa.")
+                RichText::new("Optional: saved to the active or latest run log.")
                     .size(12.5)
                     .color(MUTED),
             );
             ui.add_space(4.0);
             ui.horizontal_wrapped(|ui| {
                 for (chip, text) in [
-                    ("Veloce e fluido", "Feedback rapido: riconoscimento veloce e transizioni fluide"),
-                    ("Tocco leggero", "Feedback rapido: appoggiato il dito con pressione leggera"),
-                    ("Dito angolato", "Feedback rapido: appoggiato il dito ruotato / di lato"),
-                    ("Falso rifiuto", "Feedback rapido: dito registrato ma non riconosciuto al primo tocco"),
+                    ("Fast & smooth", "Quick feedback: fast recognition and smooth transitions"),
+                    ("Light touch", "Quick feedback: placed finger with light pressure"),
+                    ("Angled finger", "Quick feedback: placed finger rotated / off-axis"),
+                    ("False reject", "Quick feedback: enrolled finger rejected on first touch"),
                 ] {
                     if button(ui, None, chip, CARD_HI, Vec2::new(112.0, 26.0), true).clicked() {
                         quick_note = Some(text.to_string());
@@ -1225,21 +1249,21 @@ impl Panel {
             ui.add_space(4.0);
             ui.horizontal(|ui| {
                 let edit = egui::TextEdit::singleline(&mut self.note_draft)
-                    .hint_text("es. dito leggero / nessun segnale / anticipato")
+                    .hint_text("e.g. light touch / no signal / early touch")
                     .char_limit(500)
                     .desired_width((ui.available_width() - 140.0).max(120.0));
                 let response = ui.add(edit);
                 let enter = response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
                 let can = !self.note_draft.trim().is_empty();
-                if button(ui, Some(Icon::Note), "Salva nota", CARD_HI, Vec2::new(130.0, 34.0), can).clicked() || (enter && can) {
+                if button(ui, Some(Icon::Note), "Save note", CARD_HI, Vec2::new(130.0, 34.0), can).clicked() || (enter && can) {
                     self.save_note(ctx);
                 }
             });
             if let Some((time, result)) = &self.note_feedback {
                 if time.elapsed() < Duration::from_secs(5) {
                     match result {
-                        Ok(()) => ui.label(RichText::new("Nota salvata nel log.").color(GREEN).size(12.5)),
-                        Err(e) => ui.label(RichText::new(format!("Nota non salvata: {e}")).color(RED).size(12.5)),
+                        Ok(()) => ui.label(RichText::new("Note saved to log.").color(GREEN).size(12.5)),
+                        Err(e) => ui.label(RichText::new(format!("Note not saved: {e}")).color(RED).size(12.5)),
                     };
                 }
             }
@@ -1263,9 +1287,9 @@ impl eframe::App for Panel {
                 egui::ScrollArea::vertical().show(ui, |ui| {
                     ui.horizontal(|ui| {
                         ui.label(RichText::new("REA-FS").size(24.0).strong());
-                        ui.label(RichText::new("Impronte digitali").size(16.0).color(MUTED));
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            if button(ui, Some(Icon::Refresh), "Ricarica piano", CARD_HI, Vec2::new(150.0, 34.0), !self.loading)
+                            if button(ui, Some(Icon::Refresh), "Reload plan.json", CARD_HI, Vec2::new(165.0, 34.0), !self.loading)
+                                .on_hover_text("Re-read .rea-fs.local/panel/plan.json from disk (auto-polled every second)")
                                 .clicked()
                             {
                                 self.load(&ctx);
@@ -1277,9 +1301,10 @@ impl eframe::App for Panel {
                         ui.colored_label(RED, RichText::new(&self.error).size(14.0).strong());
                     }
                     let Some(envelope) = self.plan.clone() else {
-                        ui.heading("Caricamento del piano…");
-                        ui.label("Nessuna azione parte automaticamente.");
-                        ui.monospace(self.session.join("plan.json").display().to_string());
+                        ui.heading("Loading plan…");
+                        ui.label("No action starts automatically.");
+                        let plan_file = self.session.join("plan.json");
+                        ui.monospace(display_path(&plan_file, &self.root)).on_hover_text(plan_file.display().to_string());
                         return;
                     };
                     self.tabs_ui(ui, &ctx, &envelope);
@@ -1291,10 +1316,10 @@ impl eframe::App for Panel {
                         Tab::Tools => self.tools_ui(ui, &ctx, &envelope),
                     }
                     if self.pending.is_some() {
-                        ui.colored_label(AMBER, "Piano aggiornato: la prova attiva conserva la revisione iniziale.");
+                        ui.colored_label(AMBER, "Plan updated on disk: the active run keeps its initial revision.");
                     }
                     if self.copy_requested.is_some_and(|t| t.elapsed() < Duration::from_secs(3)) {
-                        ui.colored_label(GREEN, "Testo copiato negli appunti.");
+                        ui.colored_label(GREEN, "Command copied to clipboard.");
                     }
                 });
             });
@@ -1318,14 +1343,14 @@ fn main() -> eframe::Result {
                 if let Some(path) = args.next() {
                     root = PathBuf::from(path);
                 } else {
-                    eprintln!("--repo richiede un percorso");
+                    eprintln!("--repo requires a path");
                     std::process::exit(2);
                 }
             }
             "--session-dir" => {
                 session = args.next().map(PathBuf::from);
                 if session.is_none() {
-                    eprintln!("--session-dir richiede un percorso");
+                    eprintln!("--session-dir requires a path");
                     std::process::exit(2);
                 }
             }
@@ -1334,7 +1359,7 @@ fn main() -> eframe::Result {
                 return Ok(());
             }
             _ => {
-                eprintln!("Opzione sconosciuta: {arg}");
+                eprintln!("Unknown option: {arg}");
                 std::process::exit(2);
             }
         }
@@ -1347,13 +1372,13 @@ fn main() -> eframe::Result {
             .with_app_id("rea-fs-panel")
             .with_icon(eframe::icon_data::from_png_bytes(include_bytes!("../../docs/rea-fs-icon.png"))
                 .expect("bundled REA-FS icon must be valid PNG"))
-            .with_title("REA-FS · Impronte digitali")
+            .with_title("REA-FS")
             .with_inner_size([1120.0, 760.0])
             .with_min_inner_size([900.0, 560.0]),
         ..Default::default()
     };
     eframe::run_native(
-        "REA-FS · Esperimenti",
+        "REA-FS",
         options,
         Box::new(move |cc| Ok(Box::new(Panel::new(cc, root, session)))),
     )
@@ -1419,8 +1444,17 @@ mod plan_watch_tests {
         assert_eq!(find_delete(&plan), Some(3));
         assert!((0..4).all(|i| !is_tool(&plan, i)));
         assert!(is_tool(&plan, 4));
-        assert_eq!(finger_label("right-index-finger"), "Indice destro");
-        assert_eq!(finger_label("left-thumb"), "Pollice sinistro");
+        assert_eq!(finger_label("right-index-finger"), "Right index");
+        assert_eq!(finger_label("left-thumb"), "Left thumb");
+    }
+    #[test]
+    fn display_path_relativizes_inside_repo() {
+        let root = Path::new("/repo/REA-FS");
+        assert_eq!(display_path(Path::new("/repo/REA-FS"), root), ".");
+        assert_eq!(
+            display_path(Path::new("/repo/REA-FS/.rea-fs.local/panel/plan.json"), root),
+            ".rea-fs.local/panel/plan.json"
+        );
     }
     #[test]
     fn control_lines_escape_user_text() {

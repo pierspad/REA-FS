@@ -88,13 +88,13 @@ def main():
     try:
         install_desktop_entry()
     except OSError as exc:
-        print(f'Impossibile aggiornare il collegamento desktop REA-FS: {exc}', file=sys.stderr)
+        print(f'Could not update REA-FS desktop entry: {exc}', file=sys.stderr)
     session = args.session_dir.resolve()
     try:
         if prepare_session(session, ROOT / 'examples/panel-plan.json'):
-            print(f'Creato piano iniziale con simulazione e prove offline: {session}/plan.json', flush=True)
+            print(f'Created starter plan with simulation and offline checks: {session}/plan.json', flush=True)
     except OSError as exc:
-        parser.exit(1, f'Impossibile preparare la sessione: {exc}\n')
+        parser.exit(1, f'Could not prepare session: {exc}\n')
     env = os.environ.copy()
     if os.environ.get('WAYLAND_DISPLAY') or os.environ.get('XDG_SESSION_TYPE') == 'wayland':
         env.setdefault('WINIT_UNIX_BACKEND', 'wayland')
@@ -104,7 +104,7 @@ def main():
     try:
         if not is_binary_up_to_date(bin_path, ROOT / 'panel'):
             if not shutil.which('cargo'):
-                parser.exit(1, 'Rust/Cargo non disponibile. Leggi docs/experiment-panel.md per i prerequisiti.\n')
+                parser.exit(1, 'Rust/Cargo not found. See docs/experiment-panel.md for prerequisites.\n')
             build_res = subprocess.call(
                 ['cargo', 'build', '--release', '--locked', '--manifest-path', str(ROOT / 'panel/Cargo.toml')],
                 cwd=ROOT, env=env

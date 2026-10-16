@@ -35,11 +35,11 @@ def main():
             print(json.dumps(append_note(args.session_dir,args.text),ensure_ascii=False));return 0
         def emit(**fields):print(json.dumps(fields),flush=True)
         for stage in range(1,4):
-            emit(type='instruction',text='Evento simulato: attesa del contatto. Non toccare il lettore.')
+            emit(type='instruction',text='Simulated event: waiting for touch. Do not touch the reader.')
             emit(type='device_state',needed=True,present=False);time.sleep(1)
             emit(type='device_state',needed=False,present=True);time.sleep(1)
             emit(type='progress',completed=stage,total=3)
-            emit(type='instruction',text='Evento simulato: rilascio. Non è una misura del sensore.')
+            emit(type='instruction',text='Simulated event: release. This is not a hardware measurement.')
             emit(type='device_state',needed=False,present=False);time.sleep(.5)
         return 0
     except (OSError,ValueError,KeyError) as exc:

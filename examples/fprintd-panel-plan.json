@@ -2,12 +2,12 @@
   "schema_version": 1,
   "plan_id": "fprintd-guided",
   "revision": 3,
-  "title": "REA-FS · Banco Prove e Gestione Impronte",
+  "title": "REA-FS · Fingerprint Testbench & Management",
   "experiments": [
     {
       "id": "verify-auto",
-      "title": "Verifica impronta",
-      "instructions": "Verifica automatica con tutte le impronte registrate. Lascia libero il sensore durante l’apertura, poi appoggia il dito quando richiesto.",
+      "title": "Verify fingerprint",
+      "instructions": "Automatic verification against all enrolled fingerprints. Keep the sensor clear while opening, then touch when prompted.",
       "argv": [
         "fprintd-verify"
       ],
@@ -16,12 +16,12 @@
       "adapter": "fprintd",
       "category": "biometric_capture",
       "raw_log": true,
-      "next_steps": "Verifica conclusa. L’agente leggerà esito e metriche dai log privati."
+      "next_steps": "Verification finished. The agent will inspect the outcome and metrics from the private logs."
     },
     {
       "id": "enroll-finger",
-      "title": "Registra impronta",
-      "instructions": "Registra il dito selezionato con appoggi consecutivi sul lettore.",
+      "title": "Enroll fingerprint",
+      "instructions": "Enroll the selected finger with consecutive touches on the reader.",
       "argv": [
         "fprintd-enroll",
         "-f",
@@ -35,12 +35,12 @@
         "finger"
       ],
       "raw_log": true,
-      "next_steps": "Nuova impronta registrata e salvata nel sistema fprintd."
+      "next_steps": "New fingerprint enrolled and saved in system fprintd."
     },
     {
       "id": "delete-finger",
-      "title": "Elimina impronta",
-      "instructions": "Rimuove l'impronta selezionata dal database di sistema di fprintd.",
+      "title": "Delete fingerprint",
+      "instructions": "Removes the selected fingerprint from the system fprintd database.",
       "argv": [
         "fprintd-delete",
         "{user}",
@@ -54,12 +54,12 @@
       "parameters": [
         "finger"
       ],
-      "next_steps": "Impronta rimossa dal database di sistema."
+      "next_steps": "Fingerprint removed from the system database."
     },
     {
       "id": "list-fingers",
-      "title": "Elenco impronte registrate",
-      "instructions": "Interroga fprintd e mostra quali dita risultano registrate nel sistema.",
+      "title": "List enrolled fingerprints",
+      "instructions": "Queries fprintd and shows which fingers are enrolled on the system.",
       "argv": [
         "fprintd-list",
         "{user}"
@@ -69,7 +69,7 @@
       "adapter": "plain",
       "category": "diagnostics",
       "raw_log": true,
-      "next_steps": "Elenco impronte aggiornato."
+      "next_steps": "Enrolled fingerprint list updated."
     }
   ]
 }

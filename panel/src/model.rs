@@ -74,7 +74,7 @@ impl Default for State {
         Self {
             active: false,
             run_id: String::new(),
-            status: "Pronto per iniziare".into(),
+            status: "Ready".into(),
             detail: String::new(),
             next_steps: String::new(),
             needed: false,
@@ -103,11 +103,11 @@ impl Default for State {
 
 pub fn retry_text(code: &str) -> &'static str {
     match code.split_once('-').map(|x| x.1).unwrap_or("") {
-        "retry-scan" => "Lettura non riuscita: solleva il dito e riappoggialo.",
-        "swipe-too-short" => "Contatto troppo breve: tieni il dito appoggiato più a lungo.",
-        "finger-not-centered" => "Dito non centrato: appoggialo al centro del lettore.",
-        "remove-and-retry" => "Solleva completamente il dito e riprova.",
-        _ => "Riprova l’appoggio.",
+        "retry-scan" => "Scan failed: lift your finger and try again.",
+        "swipe-too-short" => "Touch too short: hold your finger down longer.",
+        "finger-not-centered" => "Finger not centered: place it flat in the center of the reader.",
+        "remove-and-retry" => "Lift your finger completely and try again.",
+        _ => "Please try placing your finger again.",
     }
 }
 
@@ -137,7 +137,7 @@ impl State {
             self.active = true;
             self.run_id = run.into();
             self.simulation = event["adapter"] == "simulation";
-            self.status = "Esperimento in corso".into();
+            self.status = "Running…".into();
             self.detail = event["instructions"].as_str().unwrap_or("").into();
             self.next_steps = event["next_steps"].as_str().unwrap_or("").into();
             self.timeout = event["timeout_seconds"].as_f64().unwrap_or(0.0);
@@ -150,7 +150,7 @@ impl State {
         match kind {
             "operation_started" if event["origin"] == "device" => {
                 self.op_started_at = elapsed;
-                self.status = "Sensore pronto".into();
+                self.status = "Sensor ready".into();
             }
             "verify_finger" if event["origin"] == "device" => {
                 self.verify_finger = event["finger"].as_str().unwrap_or("").into();
@@ -175,20 +175,20 @@ impl State {
                 }
                 self.status = if self.simulation {
                     if self.present {
-                        "Contatto simulato"
+                        "Simulated touch"
                     } else if self.needed {
-                        "Attesa simulata"
+                        "Simulated wait"
                     } else {
-                        "Rilascio simulato"
+                        "Simulated release"
                     }
                 } else if self.lift {
-                    "Rimuovi il dito"
+                    "Lift your finger"
                 } else if self.present {
-                    "Dito rilevato"
+                    "Finger detected"
                 } else if self.needed {
-                    "Appoggia il dito"
+                    "Place your finger"
                 } else {
-                    "Attendi"
+                    "Wait"
                 }
                 .into();
             }
@@ -203,14 +203,14 @@ impl State {
                     self.lift = true;
                 }
                 self.status = if self.simulation {
-                    "Passaggio simulato completato"
+                    "Simulated step completed"
                 } else {
-                    "Appoggio acquisito: rimuovi il dito"
+                    "Step captured: lift your finger"
                 }
                 .into();
             }
             "stopping" => {
-                self.status = "Interruzione in corso".into();
+                self.status = "Stopping…".into();
                 self.needed = false;
                 self.present = false;
             }
@@ -225,20 +225,20 @@ impl State {
                     self.result = result.into();
                 }
                 self.status = match kind {
-                    "completed" => "Esperimento completato",
-                    "timeout" => "Tempo scaduto",
-                    "stopped" => "Esperimento interrotto",
-                    _ => "Esperimento fallito",
+                    "completed" => "Completed",
+                    "timeout" => "Timed out",
+                    "stopped" => "Stopped",
+                    _ => "Failed",
                 }
                 .into();
                 if event["result"] == "verify-no-match" {
-                    self.status = "Impronta non riconosciuta".into();
+                    self.status = "Fingerprint not recognized".into();
                 }
                 if event["result"] == "verify-match" {
-                    self.status = "Impronta riconosciuta".into();
+                    self.status = "Fingerprint recognized".into();
                 }
                 if event["result"] == "enroll-completed" {
-                    self.status = "Registrazione completata con successo".into();
+                    self.status = "Enrollment completed".into();
                 }
                 self.detail = event["message"]
                     .as_str()
@@ -248,12 +248,12 @@ impl State {
                 if self.detail.is_empty() {
                     if let Some(code) = event["exit_code"].as_i64() {
                         self.detail = format!(
-                            "Il comando è terminato con codice {code}. Dettagli nei log privati."
+                            "Command exited with code {code}. Details in session logs."
                         );
                     }
                 }
                 if event["cleanup_not_confirmed"] == true {
-                    self.detail.push_str(" · Cleanup hardware non confermato");
+                    self.detail.push_str(" · Hardware cleanup not confirmed");
                 }
             }
             _ => {}
@@ -273,7 +273,7 @@ impl State {
         self.needed = false;
         self.present = false;
         self.lift = false;
-        self.status = "Impossibile avviare la prova".into();
+        self.status = "Failed to start".into();
         self.detail = message;
     }
     pub fn remaining(&self) -> f64 {
@@ -315,18 +315,18 @@ mod tests {
     #[test]
     fn next_steps_survive_the_terminal_event() {
         let mut state = State::default();
-        state.apply(json!({"type":"started","run_id":"a","next_steps":"Continua dai log."}));
+        state.apply(json!({"type":"started","run_id":"a","next_steps":"Continue from logs."}));
         state.apply(json!({"type":"failed","run_id":"a","exit_code":2}));
-        assert_eq!(state.next_steps, "Continua dai log.");
+        assert_eq!(state.next_steps, "Continue from logs.");
     }
     #[test]
     fn simulation_never_requests_a_physical_touch() {
         let mut state = State::default();
         state.apply(json!({"type":"started","run_id":"a","adapter":"simulation"}));
         state.apply(json!({"type":"device_state","run_id":"a","origin":"simulation","needed":true,"present":false}));
-        assert_eq!(state.status, "Attesa simulata");
+        assert_eq!(state.status, "Simulated wait");
         state.apply(json!({"type":"device_state","run_id":"a","origin":"simulation","needed":false,"present":true}));
-        assert_eq!(state.status, "Contatto simulato");
+        assert_eq!(state.status, "Simulated touch");
     }
     #[test]
     fn copy_command_quotes_shell_metacharacters() {
@@ -343,7 +343,7 @@ mod tests {
         assert!(state.simulation);
         state.apply(json!({"type":"failed","run_id":"a","reason":"output_limit"}));
         assert!(!state.active);
-        assert_eq!(state.status, "Esperimento fallito");
+        assert_eq!(state.status, "Failed");
         assert!(state.detail.contains("output_limit"));
     }
     #[test]
@@ -366,7 +366,7 @@ mod tests {
         state.apply(json!({"type":"device_state","run_id":"a","origin":"device","needed":true,"present":false}));
         assert_eq!(state.phase(), Phase::Touch);
         state.apply(json!({"type":"retry_hint","run_id":"a","origin":"device","code":"enroll-finger-not-centered"}));
-        assert!(state.hint.contains("centro"));
+        assert!(state.hint.contains("center"));
         assert_eq!(state.phase(), Phase::Lift);
         state.apply(json!({"type":"device_state","run_id":"a","origin":"device","needed":true,"present":false}));
         assert_eq!(state.phase(), Phase::Touch);
