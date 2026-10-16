@@ -1,12 +1,16 @@
 # <img src="docs/rea-fs-icon.svg" alt="REA-FS" height="42" align="absmiddle"> REA-FS
 
+#### Reverse Engineer Any - Fingerprint Sensor
+
 [![GitHub Sponsors](https://img.shields.io/badge/Sponsor-%E2%9D%A4-ea4aaa?logo=github&style=flat)](https://github.com/sponsors/pierspad) [![Buy Me a Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-Donate-yellow?logo=buymeacoffee)](https://buymeacoffee.com/pierspad) [![Ko-fi](https://img.shields.io/badge/Ko--fi-Support-ff5e5b?logo=ko-fi)](https://ko-fi.com/pierspad)
 
 **A workbench for reverse-engineering unsupported fingerprint sensors on Linux.**
 
-## Just want your Synaptics `06cb:00dc` reader to work?
+## Just want your Fingerprint sensor to work?
 
-Use [synaptics-00dc](https://github.com/pierspad/synaptics-00dc) for the standalone C driver and installation commands. You do not need this GUI or reverse-engineering tools just to use the driver.
+I used this workflow for my Synaptics-00dc and it works flawlessly, hope it can help you too :)
+
+> For **USB synaptics `06cb:00dc`**, use [github.com/pierspad/synaptics-00dc](https://github.com/pierspad/synaptics-00dc)
 
 ## Investigate another sensor
 
