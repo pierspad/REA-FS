@@ -1,5 +1,12 @@
 # Synaptics `06cb:00dc` Project Checklist & `libfprint` Upstream Roadmap
 
+> Status correction, 2026-10-16: the maintained source is now the
+> `synaptics-00dc` submodule. The FpiSsm engine is experimental and unused by the
+> production backend. First pairing on a fresh device, asynchronous hardware
+> parity and population FAR/FRR remain unverified. Timing entries below are
+> historical local measurements, not guarantees. The old permissive Polkit rule
+> is no longer distributed. See `libfprint-upstreaming.md` for current gates.
+
 This checklist instantiates [`docs/re-checklist-template.md`](re-checklist-template.md) for the **Synaptics WBDI `06cb:00dc`** sensor (ROM `6.20` build `154`, hardware module `0x2449`, $144 \times 56$ pixels @ 508 DPI).
 
 ---
@@ -7,7 +14,7 @@ This checklist instantiates [`docs/re-checklist-template.md`](re-checklist-templ
 ## Phase 0 — Bootstrap, Preferences & Privacy Setup
 - [x] **Initialize Private Session:** `sessions/2026-10-15-synaptics-06cb-00dc/checkpoint.md` created (`0700` dir, `0600` files).
 - [x] **Configure Preferences:** `.rea-fs.local/preferences.json` configured with local autonomy preferences and `allow_upload: false`.
-- [x] **Verify `.gitignore` & Git History Hygiene:** Confirmed zero biometric scans (`*.bin`, `*.raw`, `*.pgm`, `*.npy`) or private keys (`*.pem`) exist in Git history; all temporary raw finger captures removed from disk and blocked in `.gitignore`.
+- [x] **Private-data exclusions:** captures and pairing keys are excluded by `.gitignore`. Private captures may remain in local sessions; exclusion does not prove deletion or a full historical secrets audit.
 
 ---
 
@@ -39,10 +46,10 @@ This checklist instantiates [`docs/re-checklist-template.md`](re-checklist-templ
   - [x] Eliminated the 10–20 frame open delay during `verify`/`identify`; works even if the finger is already resting on the sensor at device open (`clear=0` fallback to cached baseline).
 - [x] **Short Burst Capture (6 Frames):**
   - [x] Reduced contact window from 20–25 frames (~0.5 s) to **6 frames** (~100 ms) with $\pm 2\text{ px}$ translation alignment, preserving $>96.8\%$ correlation while eliminating motion blur.
-- [x] **Pruned 2D FFT + Summed-Area Table (SAT) Matcher (`drivers/syna_tod/src/syna_matcher.c`):**
-  - [x] Replaced $O(N \cdot M)$ spatial loops (~3,000 ms) with pruned 1D/2D radix-2 FFT cross-correlation + $O(1)$ SAT local energy normalization across `-30°..+30°`.
-  - [x] Precomputed probe FFT + SAT (`SynaPrecomputedProbe`) in **0.50 ms**.
-  - [x] Single-template match runs in **37.39 ms**; early-exit verification (`score >= 0.72`) completes in **37.91 ms** total CPU time.
+- [x] **Pruned 2D FFT + Summed-Area Table (SAT) + Rotation LUT Matcher (`drivers/syna_tod/src/syna_matcher.c`):**
+  - [x] Replaced $O(N \cdot M)$ spatial loops (~3,000 ms) with pruned 1D/2D radix-2 FFT cross-correlation + $O(1)$ SAT local energy normalization + precomputed rotation index/mask-SAT LUTs across `-30°..+30°`.
+  - [x] Precomputed probe FFT + SAT (`syna_matcher_set_probe`) in **0.39 ms**.
+  - [x] Center-outward angle search (`0°, ±2°, ±4°, ...`): upright match runs in **2.61 ms**, `12°` rotated early-exit verification completes in **11.40 ms** (worst-case full sweep **23.2 ms**).
   - [x] Lowered minimum overlap tolerance to `0.45` with smooth $\sqrt{\text{ov}/0.65}$ weighting to tolerate vertical finger shifts on the narrow $2.8\text{ mm}$ ($56\text{ px}$) sensor height.
   - [x] Verified genuine (`0.83–0.92`) vs. impostor (`0.28–0.32`) separation around the `0.50` threshold.
 
@@ -52,7 +59,7 @@ This checklist instantiates [`docs/re-checklist-template.md`](re-checklist-templ
 - [x] **8-Stage Enrollment (`SYNA_ENROLL_STAGES = 8`):** Captures 8 progressive touches (up to 16 diversity-selected sub-templates) to cover diverse angles and placements on the small $144 \times 56$ sensor.
 - [x] **Instant "Hold Still" $\to$ "Lift Finger" Transition:** `syna_capture_finger_sample` returns immediately after the 6-frame burst so `fprintd` emits `enroll-stage-passed` while the finger is still down, switching the GUI to **"SOLLEVA IL DITO"** right away; the next stage waits for physical lift (`rms <= 28.0`) before prompting **"APPOGGIA IL DITO"**.
 - [x] **Multi-Finger `identify` (1:N) Support (`syna_identify`):** Implemented `dev_class->identify` so `fprintd-verify` and desktop PAM login match against **all** enrolled fingers in a single touch.
-- [x] **Passwordless Local Polkit Rule (`drivers/syna_tod/50-syna-00dc-fprintd.rules`):** Installed into `/etc/polkit-1/rules.d/50-syna-00dc-fprintd.rules` by `scripts/install-tod-driver.sh` so active local desktop sessions can enroll, verify, and delete prints without repeated `sudo`/Polkit password prompts.
+- [ ] **Remove legacy permissive Polkit installation:** no longer shipped by the installer. Existing system copies need explicit review/removal with backup; source changes do not remove an installed rule.
 
 ---
 
@@ -66,8 +73,8 @@ To move `drivers/syna_tod` from an external `libfprint-tod` plugin into an upstr
   - Embedded `SYNA_BUILTIN_CAPTURE_INIT` (4,676 bytes) and `SYNA_BUILTIN_CAPTURE_PACKET` (1,917 bytes) directly in `drivers/syna_tod/src/syna_capture_tables.h` with automatic fallback in `syna_oem_load()`, eliminating any runtime dependency on external `capture_init.bin` / `capture_packet.bin` files.
 - [x] **3. Self-Contained C Host Pairing (`0x4f` Ownership + `0x50` Public Material):**
   - Implemented `syna_pairing_generate_request()`, `syna_pairing_validate_request()`, and `syna_pairing_extract_credentials()` in `drivers/syna_tod/src/syna_tls.c` using the deterministic ROM `6.20` `HS_KEY_PAIR_GEN` EC P-256 vendor signer (`syna_tls_prf`), plus `syna_oem_save_credentials()` and first-boot auto-pairing (`SYNA_ALLOW_AUTO_PAIR=1`) in `syna_device.c`.
-- [x] **4. Non-Blocking `FpiSsm` + `FpiUsbTransfer` Open & Capture State Machines (`drivers/syna_tod/src/syna_ssm.c`):**
-  - Implemented `syna_ssm_open_new()` (16 states: reset, claim, `0x01`/`0x75` hardware verification, optional `0x4f`/`0x50` pairing, TLS 1.2 handshake, `0x1a`/`0x06` init) and `syna_ssm_capture_new()` (11 states: `0x02` start, chunked 17,024-byte bulk stream reads on `EP 0x82`, contact/lift detection, `0x04` stop, 6-frame alignment + bandpass filter).
+- [ ] **4. Activate and validate the non-blocking backend:**
+  - Experimental `syna_ssm_open_new()` and `syna_ssm_capture_new()` exist and have offline hardening checks. Device operations still call the threaded implementation. Async baseline/calibration, close and operation orchestration plus USB replay/hardware testing are still required.
 - [ ] **5. Upstream `umockdev` Test Suite:**
   - Record synthetic USB + TLS session traces under `workspace/libfprint/tests/` so upstream CI can test open, enroll, verify, and identify without physical hardware (see [`docs/libfprint-upstreaming.md`](libfprint-upstreaming.md)).
 

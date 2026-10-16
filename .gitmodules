@@ -1,0 +1,3 @@
+[submodule "drivers/syna_tod"]
+	path = drivers/syna_tod
+	url = https://github.com/pierspad/synaptics-00dc.git

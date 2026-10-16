@@ -9,7 +9,13 @@
 | Fork synaTudor del manutentore | `git@github.com:pierspad/synaTudor.git` | `workspace/synaTudor-fork` | Sviluppo sperimentale; gli altri utenti scelgono il proprio fork |
 | Fork libfprint dell’utente | URL personale su freedesktop | stesso clone libfprint | Destinazione delle proprie contribuzioni |
 
-Non sono submodule. Ogni utente sceglie fork e branch; nessun clone annidato viene tracciato da REA-FS. Per registrare un esperimento, salva nella sessione URL dei remote e commit esatti (`git rev-parse HEAD`), senza credenziali.
+I clone sotto `workspace/` non sono submodule. Il driver `drivers/syna_tod`, invece,
+è un submodule fissato a una revisione di `https://github.com/pierspad/synaptics-00dc.git`.
+Il clone di sviluppo del manutentore può stare accanto a REA-FS in `github/synaptics-00dc`.
+Non contiene una seconda implementazione: è un altro checkout dello stesso repository.
+Inizializzare con `git submodule update --init --recursive`; aggiornare il pin soltanto
+dopo aver pubblicato e verificato il commit del driver. Ogni utente sceglie fork e
+branch per gli altri clone. Per gli esperimenti registrare revisioni senza credenziali.
 
 Il clone iniziale del manutentore usa l’upstream libfprint come `origin`: non è un fork personale. Quando avrai creato il fork, dal clone potrai fare:
 

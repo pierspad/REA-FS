@@ -1,51 +1,66 @@
-# Submitting `syna_wbdi` (`06cb:00dc`) Upstream to `libfprint`
+# libfprint upstream work
 
-This guide explains **what** can be submitted to upstream [`libfprint`](https://gitlab.freedesktop.org/libfprint/libfprint), **how** to prepare the Merge Request, and **what upstream maintainers require**.
+The maintained driver source is [synaptics-00dc](https://github.com/pierspad/synaptics-00dc),
+pinned here at `drivers/syna_tod`. It is a TOD module, not an upstream driver yet.
 
----
+## Local native compile prototype (2026-10-16)
 
-## 1. Why `06cb:00dc` Needs a Dedicated Driver (`synaptics_wbdi`)
+The same source from driver commit `2c55a59` was copied into the ignored upstream
+clone at `libfprint/drivers/syna_00dc`, registered in both Meson maps, and its device
+ID string changed from `syna_00dc_tod` to `syna_00dc`. Base upstream revision:
+`6f9479c3d55f847c1b3769f28ceb99227f9858cf`; local branch:
+`codex/synaptics-00dc-native-prototype`. This is a candidate copy for upstream work,
+not a second maintained driver in REA-FS.
 
-In upstream `libfprint`, `libfprint/drivers/synaptics/` only supports **Match-in-Sensor (BMKT)** devices (`06cb:00df`, `06cb:00bd`, etc.), where image capture and minutiae matching happen inside the sensor's processor.
+```sh
+meson setup workspace/libfprint/build-syna00dc-prototype workspace/libfprint \
+  -Ddrivers=syna_00dc -Ddoc=false -Dintrospection=false -Dinstalled-tests=false
+ninja -C workspace/libfprint/build-syna00dc-prototype
+meson test -C workspace/libfprint/build-syna00dc-prototype --suite unit-tests --print-errorlogs
+```
 
-By contrast, **Synaptics `06cb:00dc`** (ROM `6.20` build `154`, sensor module `0x0190:0x00a2` / `86C TM-P3568-001`, product ID `'3'` / `0x33`) is a **Host-Side Raw-Image WBDI** sensor:
-1. It establishes a custom **TLS 1.2 (`ECDHE-ECDSA-AES256-CBC-SHA256`)** session framed with `0x44 0x00 0x00 0x00` headers over USB bulk endpoints `0x01`/`0x81`.
-2. It streams raw $112 \times 152$-byte **Mode-2 capacitive frames** (`17,024` bytes) over endpoint `0x82`.
-3. Reconstruction ($144 \times 56$ pixels @ 508 DPI) and rotational cross-correlation matching (`-30°..+30°`) run on the host CPU.
+Native library build succeeded; the generated supported-device table includes
+06cb:00dc. All three upstream unit suites (device, SSM, assembling) passed.
+The local prototype is committed as `412d6286`; no upstream push was made.
+This verifies compilation/registration without TOD, not USB operation.
+OpenSSL deprecated-API warnings remain. The prototype retains the threaded/custom
+matcher backend; it is not the proposed FpImageDevice/NBIS conversion and has not
+been installed or submitted upstream. Historical Trial7/Trial8 capture files were
+not available at their recorded paths during this work, so a real NBIS comparison
+cannot be inferred from synthetic tests.
 
----
+## Implemented versus validated
 
-## 2. What Has Already Been Implemented in `drivers/syna_tod/src/`
+- Native protocol, Mode-2 reconstruction and host matcher: implemented; historical
+  local hardware observations are recorded in the sensor checklist.
+- ROM/module checks, built-in capture configuration and pairing helpers: implemented.
+  A unit test does not prove successful first pairing on a fresh sensor.
+- FpiSsm open/capture engine: experimental, compiled and partially tested offline;
+  **not called by the production device operations**. The default uses GTask threads.
+- Recent SSM corrections validate init/stop responses, check capture-start once,
+  cap capture duration, make stop uncancellable and release failed-open interfaces.
+  Policy tests do not replay actual USB state transitions.
+- Shared frame alignment is exercised directly by synthetic pipeline/burst tests.
+  No new population FAR/FRR or hardware timing claim follows from those tests.
 
-All four technical blockers for upstream `libfprint` inclusion are now implemented and unit-tested in `drivers/syna_tod/`:
+## Recommended port
 
-| Upstream Requirement | Implementation in `drivers/syna_tod/src/` | Status |
-|---|---|---|
-| **1. Hardware Identity Verification (`0x01` + `0x75`)** | [`syna_proto.h`](../drivers/syna_tod/src/syna_proto.h): `syna_parse_version_response()` (asserts ROM `6.20` build `154`, product `0x33`) and `syna_parse_sensor_id_response()` (asserts module `0x0190:0x00a2`). | Ready & tested (`test_status.c`) |
-| **2. Self-Contained Capture Tables (`0x06` + `0x02`)** | [`syna_capture_tables.h`](../drivers/syna_tod/src/syna_capture_tables.h): compiled-in `SYNA_BUILTIN_CAPTURE_INIT` (`4,676 B`) and `SYNA_BUILTIN_CAPTURE_PACKET` (`1,917 B`). No external `.bin` files required. | Ready & tested (`test_oem.c`) |
-| **3. First-Boot Host Pairing (`0x4f` + `0x50`)** | [`syna_tls.c`](../drivers/syna_tod/src/syna_tls.c): `syna_pairing_generate_request()` derives the deterministic ROM `6.20` `HS_KEY_PAIR_GEN` EC P-256 vendor signer via `syna_tls_prf`, signs a fresh host EC P-256 keypair, and `syna_pairing_extract_credentials()` extracts `host_cert.bin` (`184 B`) + `server_ecdh_pub.bin` (`65 B`). | Ready & tested (`test_tls.c`) |
-| **4. Non-Blocking `FpiSsm` + `FpiUsbTransfer` Engine** | [`syna_ssm.c`](../drivers/syna_tod/src/syna_ssm.c): `syna_ssm_open_new()` (16 states: reset, claim, `0x01`, `0x75`, optional `0x4f`/`0x50` pairing, TLS handshake, `0x1a`, `0x06`) and `syna_ssm_capture_new()` (11 states: `0x02` start, chunked `17,024 B` bulk reads on `EP 0x82`, contact/lift detection, `0x04` stop, 6-frame $\pm 2\text{ px}$ alignment + bandpass filter). | Ready & compiled |
+1. Build a minimal FpImageDevice adapter delivering reconstructed images to NBIS.
+   Compare held-out genuine/impostor performance against the custom matcher before
+   deciding whether to retain a custom FpDevice matching implementation.
+2. Complete async calibration, close, enroll/verify orchestration and cancellation;
+   validate stop/reopen, unplug, early touch and suspend/resume using the panel.
+3. Demonstrate device-local first pairing and baseline acquisition without personal
+   credential exports. Agree state ownership/storage with upstream maintainers.
+4. Record exact provenance of ROM configuration tables and review their nature and
+   redistribution suitability. C arrays alone do not establish upstream readiness.
+5. Add synthetic/sanitized USB replay tests, then compile against the actual upstream
+   revision and open a focused MR with limitations and reproducible evidence.
 
----
+The root upstream `meson.build` defines `drivers_info`; driver source maps are in
+`libfprint/meson.build`. Follow the current clone, not a blanket “copy these files”
+recipe. Existing `syna_ssm.c` is an engine using the TOD device struct, not an
+independent FpDevice subclass ready to drop into upstream.
 
-## 3. How to Open an Upstream Merge Request on `gitlab.freedesktop.org`
-
-### Step 1: Verify Git Identity
-Before touching `workspace/libfprint`, ensure your Git identity inside `workspace/libfprint` matches your `freedesktop.org` account (see [`docs/repositories.md`](repositories.md)).
-
-### Step 2: Copy the Driver into `workspace/libfprint`
-Create `workspace/libfprint/libfprint/drivers/synaptics_wbdi/` containing:
-- `syna_ssm.c` / `syna_ssm.h` (as the primary `FpDevice` class `FpiDeviceSynapticsWbdi`)
-- `syna_tls.c` / `syna_tls.h`
-- `syna_mode2.c` / `syna_mode2.h`
-- `syna_matcher.c` / `syna_matcher.h`
-- `syna_template.c` / `syna_template.h`
-- `syna_oem.c` / `syna_oem.h`
-- `syna_proto.h` & `syna_capture_tables.h`
-
-Register `synaptics_wbdi` in `workspace/libfprint/libfprint/meson.build` under `default_drivers` (linking `openssl` / `libcrypto` and `-lm`).
-
-### Step 3: Upstream Maintainer Checklist before Opening the MR
-1. **Formatting:** Run `ninja -C build clang-format` (or `./scripts/uncrustify.sh`) inside `workspace/libfprint` so all C files match GNU/GLib indentation.
-2. **State Storage Discussion:** Upstream `libfprint` prefers passing pairing data via `FpPrint` or a standard `/var/lib/fprint/` state path rather than environment variables. Mention in the MR description that `06cb:00dc` pairs once via commands `0x4f`/`0x50` and caches the resulting 184-byte certificate and 65-byte ECDH public key.
-3. **`umockdev` CI Trace:** Upstream requires a sanitized USB trace in `tests/synaptics_wbdi/` (using synthetic/non-biometric test frames) so GitLab CI can run `meson test` without physical hardware.
+Verify freedesktop Git identity and remotes separately from GitHub. Publication of
+hardware traces needs review; never include credentials or real fingerprints.

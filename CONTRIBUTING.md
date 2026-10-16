@@ -18,7 +18,6 @@ Run the full offline test suite (Python, Rust GUI panel, and C driver unit tests
 
 ```sh
 python3 scripts/rea-fs.py check
-cargo test --manifest-path panel/Cargo.toml
 ```
 
 To validate the GUI experiment plan without touching hardware:
@@ -28,3 +27,7 @@ python3 scripts/experiment-panel.py validate --session-dir .rea-fs.local/panel
 ```
 
 For matcher or signal-processing changes, record before/after execution times (`meson test -C drivers/syna_tod/build -v matcher_tests`) and verify that genuine vs. impostor score separation does not regress.
+
+Driver changes belong in [synaptics-00dc](https://github.com/pierspad/synaptics-00dc).
+Publish its tested commit before updating the `drivers/syna_tod` submodule pin.
+Default matcher/burst fixtures are synthetic and do not estimate population FAR/FRR.

@@ -1260,41 +1260,43 @@ impl eframe::App for Panel {
         egui::CentralPanel::default()
             .frame(egui::Frame::new().inner_margin(16).fill(BG))
             .show(ui, |ui| {
-                ui.horizontal(|ui| {
-                    ui.label(RichText::new("REA-FS").size(24.0).strong());
-                    ui.label(RichText::new("Impronte digitali").size(16.0).color(MUTED));
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if button(ui, Some(Icon::Refresh), "Ricarica piano", CARD_HI, Vec2::new(150.0, 34.0), !self.loading)
-                            .clicked()
-                        {
-                            self.load(&ctx);
-                        }
+                egui::ScrollArea::vertical().show(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        ui.label(RichText::new("REA-FS").size(24.0).strong());
+                        ui.label(RichText::new("Impronte digitali").size(16.0).color(MUTED));
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            if button(ui, Some(Icon::Refresh), "Ricarica piano", CARD_HI, Vec2::new(150.0, 34.0), !self.loading)
+                                .clicked()
+                            {
+                                self.load(&ctx);
+                            }
+                        });
                     });
+                    ui.add_space(4.0);
+                    if !self.error.is_empty() {
+                        ui.colored_label(RED, RichText::new(&self.error).size(14.0).strong());
+                    }
+                    let Some(envelope) = self.plan.clone() else {
+                        ui.heading("Caricamento del piano…");
+                        ui.label("Nessuna azione parte automaticamente.");
+                        ui.monospace(self.session.join("plan.json").display().to_string());
+                        return;
+                    };
+                    self.tabs_ui(ui, &ctx, &envelope);
+                    ui.add_space(8.0);
+                    match self.tab {
+                        Tab::Verify => self.verify_ui(ui, &ctx, &envelope),
+                        Tab::Enroll => self.enroll_ui(ui, &ctx, &envelope),
+                        Tab::Manage => self.manage_ui(ui, &ctx, &envelope),
+                        Tab::Tools => self.tools_ui(ui, &ctx, &envelope),
+                    }
+                    if self.pending.is_some() {
+                        ui.colored_label(AMBER, "Piano aggiornato: la prova attiva conserva la revisione iniziale.");
+                    }
+                    if self.copy_requested.is_some_and(|t| t.elapsed() < Duration::from_secs(3)) {
+                        ui.colored_label(GREEN, "Testo copiato negli appunti.");
+                    }
                 });
-                ui.add_space(4.0);
-                if !self.error.is_empty() {
-                    ui.colored_label(RED, RichText::new(&self.error).size(14.0).strong());
-                }
-                let Some(envelope) = self.plan.clone() else {
-                    ui.heading("Caricamento del piano…");
-                    ui.label("Nessuna azione parte automaticamente.");
-                    ui.monospace(self.session.join("plan.json").display().to_string());
-                    return;
-                };
-                self.tabs_ui(ui, &ctx, &envelope);
-                ui.add_space(8.0);
-                match self.tab {
-                    Tab::Verify => self.verify_ui(ui, &ctx, &envelope),
-                    Tab::Enroll => self.enroll_ui(ui, &ctx, &envelope),
-                    Tab::Manage => self.manage_ui(ui, &ctx, &envelope),
-                    Tab::Tools => self.tools_ui(ui, &ctx, &envelope),
-                }
-                if self.pending.is_some() {
-                    ui.colored_label(AMBER, "Piano aggiornato: la prova attiva conserva la revisione iniziale.");
-                }
-                if self.copy_requested.is_some_and(|t| t.elapsed() < Duration::from_secs(3)) {
-                    ui.colored_label(GREEN, "Testo copiato negli appunti.");
-                }
             });
     }
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
@@ -1343,8 +1345,10 @@ fn main() -> eframe::Result {
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_app_id("rea-fs-panel")
+            .with_icon(eframe::icon_data::from_png_bytes(include_bytes!("../../docs/rea-fs-icon.png"))
+                .expect("bundled REA-FS icon must be valid PNG"))
             .with_title("REA-FS · Impronte digitali")
-            .with_inner_size([1040.0, 640.0])
+            .with_inner_size([1120.0, 760.0])
             .with_min_inner_size([900.0, 560.0]),
         ..Default::default()
     };

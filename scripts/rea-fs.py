@@ -32,7 +32,8 @@ def private_write(path, text):
 
 def preflight():
     repos = {}
-    for name, path in [('REA-FS', ROOT), ('libfprint', ROOT/'workspace/libfprint'),
+    for name, path in [('REA-FS', ROOT), ('synaptics-00dc', ROOT/'drivers/syna_tod'),
+                       ('libfprint', ROOT/'workspace/libfprint'),
                        ('rea', ROOT/'workspace/rea')]:
         if not path.is_dir():
             repos[name] = {'available': False}
@@ -93,7 +94,7 @@ def main():
     init.add_argument('--directory', type=Path, required=True)
     pre = subs.add_parser('preflight', help='Read local repository and dependency metadata')
     pre.add_argument('--output', type=Path, required=True)
-    subs.add_parser('check', help='Run offline Python tests, build and C tests; no hardware')
+    subs.add_parser('check', help='Run offline Python, Rust and C checks; no hardware')
     summary = subs.add_parser('summarize', help='Summarize a manually labeled attempt CSV')
     summary.add_argument('csv', type=Path)
     summary.add_argument('--threshold', type=float, default=0.5)
@@ -112,13 +113,17 @@ def main():
                 raise ValueError('threshold must be finite and between -1 and 1')
             print(json.dumps(summarize(args.csv, args.threshold), indent=2, allow_nan=False))
         else:
+            if not (ROOT/'drivers/syna_tod/meson.build').is_file():
+                parser.exit(1, 'Driver submodule missing. Run git submodule update --init --recursive.\n')
             commands = [[sys.executable, '-m', 'unittest', 'discover', '-v']]
+            commands.append(['cargo', 'test', '--locked', '--manifest-path', str(ROOT/'panel/Cargo.toml')])
             build = ROOT/'drivers/syna_tod/build'
             if not (build/'build.ninja').exists():
                 commands.append(['meson', 'setup', str(build), str(ROOT/'drivers/syna_tod')])
             commands += [['ninja', '-C', str(build)], ['meson', 'test', '-C', str(build), '--print-errorlogs']]
+            commands.append([sys.executable, '-m', 'unittest', 'discover', '-s', str(ROOT/'drivers/syna_tod/tests'), '-p', 'test_*.py'])
             for argv in commands:
-                result = command(argv, timeout=180)
+                result = command(argv, timeout=600 if argv[0] == 'cargo' else 180)
                 print(json.dumps(result, indent=2))
                 if result['exit_code'] != 0: return 1
     except (OSError, ValueError, csv.Error) as exc:

@@ -2,7 +2,7 @@
 
 Leggi README.md, docs/repositories.md, docs/preferences.md, docs/agent-workflow.md e docs/experiment-panel.md prima dell’indagine. Leggi anche `.rea-fs.local/preferences.json` se presente; le istruzioni esplicite dell’utente prevalgono.
 
-- REA-FS contiene workflow e documentazione; `workspace/rea` e `workspace/libfprint` sono clone indipendenti ignorati. Leggi le istruzioni proprie di ogni clone prima di modificarlo.
+- REA-FS contiene pannello, workflow e documentazione; `workspace/rea` e `workspace/libfprint` sono clone indipendenti ignorati. `drivers/syna_tod` è il submodule del driver `synaptics-00dc`: inizializzarlo con `git submodule update --init --recursive` e pubblicare i commit del driver prima di aggiornare il pin. Leggi le istruzioni proprie di ogni clone prima di modificarlo.
 - Verifica repository, stato Git, remote e identità effettiva prima di commit o accessi remoti. Non portare l’identità freedesktop nel repository GitHub.
 - Riprendi il checkpoint locale prima di ripetere un esperimento. Distingui fatti, ipotesi e risultati ancora da verificare.
 - Non inventare osservazioni hardware, supporto, build riuscite o test eseguiti.

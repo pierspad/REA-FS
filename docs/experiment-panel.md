@@ -12,6 +12,14 @@ python scripts/open-panel.py
 
 Il launcher crea un piano di simulazione e prove offline soltanto se `.rea-fs.local/panel/plan.json` non esiste. Non sostituisce un piano dell’agente e non avvia esperimenti. La prima esecuzione compila l’applicazione release: servono Rust/Cargo, un compilatore C e le dipendenze grafiche Linux di egui/eframe. Cargo può scaricare dipendenze fissate da Cargo.lock. Non è ancora una release con binari precompilati.
 
+La finestra parte a 1120×760 e consente lo scorrimento verticale su schermi più
+piccoli. L'icona deriva da `docs/rea-fs-icon.svg`, con PNG incorporato per la finestra.
+Il launcher registra una voce utente `rea-fs-panel.desktop` per l'associazione
+icona/app-id su Wayland; non sostituisce una voce preesistente non gestita da REA-FS.
+Se il binario è aggiornato non serve Cargo per avviarlo. Per rigenerare il PNG dopo
+una modifica all'SVG: `rsvg-convert -w 128 -h 128 docs/rea-fs-icon.svg -o docs/rea-fs-icon.png`.
+Questo convertitore serve soltanto allo sviluppatore che modifica l'icona.
+
 L’override del linker su Linux x86-64 vale solo per il processo Cargo e usa `cc` quando disponibile, preservando un override esplicito già presente nell’ambiente. Non modifica configurazioni globali. Avvio manuale:
 
 ```sh

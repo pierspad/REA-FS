@@ -15,12 +15,13 @@ Standard `libfprint` uses NBIS (`mindtct` + `bozorth3`) to extract ridge endings
 ## 2. Sub-40 ms CPU Matching (Why CPU FFT+SAT Beats GPU inside `fprintd`)
 
 - **Why not GPU (`wgpu` / OpenGL / Vulkan)?** `fprintd` runs as a tightly sandboxed `root` systemd service (`ProtectSystem=strict`, no X11/Wayland display socket). Initializing a GPU compute context inside `fprintd` adds 80–250 ms of driver init latency and breaks systemd sandboxing.
-- **Pruned CPU 2D FFT + SAT:**
-  - Precompute the probe's 2D FFT and SAT once per touch (**0.50 ms**).
+- **Pruned CPU 2D FFT + SAT + Precomputed Rotation LUTs:**
+  - Precompute the probe's 2D FFT and SAT once per touch (**0.39 ms**).
+  - Precompute nearest-neighbor pixel source indices (`rot_idx_lut[61][144*56]`) and rotated mask integral images (`rot_sat_m[61][57*145]`) for all 61 angles (`-30°..+30°`), eliminating `cosf`/`sinf`/`roundf` and mask SAT computation during matching.
   - Prune dead zero-padded rows (`56..127`) during forward horizontal 1D FFTs and prune unreachable shift rows during inverse 1D IFFTs.
   - Fuse the vertical 1D FFT, complex conjugate multiplication, and vertical 1D IFFT column-by-column inside L1 cache.
-  - Use a `2°` coarse rotation grid (`-30°..+30°`) with full `(1, 1)` pixel shift resolution, then refine $\pm 1^\circ$ around the top candidates.
-  - **Result:** **37.4 ms** per template on a single CPU thread, with early-exit (`score >= 0.72`) completing verification in **~38 ms** (and **~240 ms** end-to-end including USB transfer).
+  - Search coarse angles outward from `0°` (`0, -2, +2, -4, +4, ...`) so upright/slightly tilted touches hit a high-confidence peak (`score >= 0.88`) within the first few angles, refine $\pm 1^\circ$, and return immediately.
+  - **Result:** **2.6 ms** for an upright template (`0°`), **11.4 ms** for a `12°`-rotated template with early-exit, and **23.2 ms** worst-case across all 31 coarse + 6 fine angles on a single CPU thread.
 
 ---
 
