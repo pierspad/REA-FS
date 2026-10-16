@@ -27,9 +27,9 @@ libfprint replacement. First pairing/enrollment remain explicit physical operati
       concise README, badges, contributing, disclosure and installer command.
 - [x] Review publication contents, create/push dedicated repo, replace parent
       tracked driver with pinned submodule while preserving ignored private data.
-- [ ] Update parent documentation and wrappers; verify clean recursive clone.
-- [x] Prepare GUI hardware plan for cancellation/reopen; baseline/bootstrap
-      validation; report measurements still requiring hardware/user participation.
+- [x] Update parent documentation and wrappers; verify clean recursive clone.
+- [x] Prepare GUI hardware plan for cancellation/reopen; document baseline/bootstrap
+      validation and measurements still requiring hardware/user participation.
 
 ## Evidence
 
@@ -41,6 +41,8 @@ libfprint replacement. First pairing/enrollment remain explicit physical operati
 - Existing system driver/PAM/Polkit not modified. Source installer no longer ships
   permissive rule; existing installed rule still needs deliberate remediation.
 - User explicitly asked to reuse README icon after initial design; no new artwork.
+- Clean recursive checkout passed 61 workbench Python tests, 11 Rust tests,
+  11 driver C suites and 8 installer/setup Python tests. No credentials required.
 
 ## Verification and limits
 
