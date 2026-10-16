@@ -64,3 +64,13 @@ independent FpDevice subclass ready to drop into upstream.
 
 Verify freedesktop Git identity and remotes separately from GitHub. Publication of
 hardware traces needs review; never include credentials or real fingerprints.
+
+## Offline hardening refresh (2026-10-17)
+
+The native prototype was refreshed from driver v0.1.2 (`8b15cf2`) and committed
+locally as `1d963480`. Native build and all three upstream unit suites passed again.
+This adds stricter cache files, private temporary writes and a no-re-pair guard;
+it does not activate SSM or implement FpImageDevice. It remains uninstalled and
+unpublished upstream. The standalone driver passed 12 C suites, also under
+AddressSanitizer/UndefinedBehaviorSanitizer, and 12 Python installer/setup tests.
+These checks do not replace USB replay, hardware recovery or biometric evaluation.
