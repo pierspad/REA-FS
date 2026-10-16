@@ -74,3 +74,12 @@ it does not activate SSM or implement FpImageDevice. It remains uninstalled and
 unpublished upstream. The standalone driver passed 12 C suites, also under
 AddressSanitizer/UndefinedBehaviorSanitizer, and 12 Python installer/setup tests.
 These checks do not replace USB replay, hardware recovery or biometric evaluation.
+
+## Native libfprint readiness and async FpiSsm completion (2026-10-17)
+
+Completed Tasks 1 through 5 of `docs/superpowers/plans/2026-10-17-upstream-readiness-plan.md`:
+1. **OpenSSL 3.0 EVP migration (`syna_tls.c`):** Migrated deprecated OpenSSL 1.1 calls (`HMAC`, `EC_KEY`, `o2i_ECPublicKey`, `ECDSA_sign`) to `EVP_MAC`, `EVP_Q_mac`, `EVP_PKEY_fromdata`, `EVP_PKEY_sign`, and `EVP_PKEY_Q_keygen`. Recompiled with zero `-Wdeprecated-declarations` warnings. Driver commit `df8bb44`.
+2. **Per-device baseline cache (`syna_device.c` / `syna_device.h` / `syna_proto.h`):** Moved `cached_baseline` array and `has_cached_baseline` flag from process-global static variables into `struct _FpiDeviceSyna00dc` (`FpiDeviceSynaTod`). Removed global baseline mutex. Driver commit `b7731db`.
+3. **Non-blocking teardown SSM (`syna_ssm.c` / `syna_ssm.h` / `test_ssm.c`):** Implemented `syna_ssm_close_new()` completing the 5-state teardown sequence (`CLEANUP_TX` / `RX`, `TLS_ALERT_TX` / `RX`, `RELEASE_USB`) with uncancellable transfers (`cancellable == NULL`). Handled all enum states under `-Wswitch-enum`. Added unit test suite `ssm_tests` in `tests/test_ssm.c`. Standalone driver now passes 13 C test suites and 12 Python tests. Driver commits `20593b2` and `e88019c`.
+4. **Small-sensor benchmark tool (`tools/benchmark_small_sensor.py` / `tests/test_benchmark_small_sensor.py`):** Added deterministic offline tool evaluating human minutiae density in 144x56 aperture (20.16 mm^2, dropping to 15.12 mm^2 under +/-14 px vertical shift: expected 4.2 minutiae vs NBIS `MIN_COMPUTABLE_BOZORTH_MINUTIAE = 10`, yielding 98.8% Bozorth3 failure rate) against 2D FFT spectral cross-correlation (>0.92 genuine, <0.39 impostor, separation margin >0.54). 4 automated tests added to workbench (65 passed).
+5. **Native libfprint prototype refresh (`workspace/libfprint`):** Synced updated sources into `libfprint/drivers/syna_00dc/`, committed locally as `a29472d1`. Full native compile completed with zero compiler warnings under both `-Wdeprecated-declarations` and `-Wswitch-enum`. All 3 upstream test suites (`fpi-assembling`, `fpi-ssm`, `fpi-device`) passed.
