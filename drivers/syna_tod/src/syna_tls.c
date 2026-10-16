@@ -581,3 +581,258 @@ int syna_tls_build_close_notify(SynaTlsContext *ctx, uint8_t *out, size_t *out_l
     uint8_t alert[2] = { 0x01, 0x00 };
     return syna_tls_encrypt_record(ctx, 0x15, alert, 2, out, out_len);
 }
+
+/* =========================================================================
+ * Self-Contained Host Pairing & Provisioning (0x4f Ownership / 0x50 Public)
+ * ========================================================================= */
+
+static const uint8_t SYNA_PAIRING_SEED[32] = {
+    0x71, 0x7c, 0xd7, 0x2d, 0x09, 0x62, 0xbc, 0x4a,
+    0x28, 0x46, 0x13, 0x8d, 0xbb, 0x2c, 0x24, 0x19,
+    0x25, 0x12, 0xa7, 0x64, 0x07, 0x06, 0x5f, 0x38,
+    0x38, 0x46, 0x13, 0x9d, 0x4b, 0xec, 0x20, 0x33
+};
+
+static EVP_PKEY *derive_vendor_signer(void)
+{
+    uint8_t suffix[18];
+    memcpy(suffix, SYNA_PAIRING_SEED + 16, 16);
+    suffix[16] = 0xaa;
+    suffix[17] = 0xaa;
+
+    uint8_t scalar_le[32];
+    if (syna_tls_prf(SYNA_PAIRING_SEED, 16, "HS_KEY_PAIR_GEN", suffix, sizeof(suffix), scalar_le, 32) != 0)
+        return NULL;
+
+    /* Convert little-endian scalar to big-endian for BIGNUM */
+    uint8_t scalar_be[32];
+    for (int i = 0; i < 32; i++) {
+        scalar_be[i] = scalar_le[31 - i];
+    }
+
+    EC_KEY *eckey = EC_KEY_new_by_curve_name(NID_X9_62_prime256v1);
+    if (!eckey) return NULL;
+
+    BIGNUM *priv_bn = BN_bin2bn(scalar_be, 32, NULL);
+    const EC_GROUP *group = EC_KEY_get0_group(eckey);
+    EC_POINT *pub_pt = EC_POINT_new(group);
+
+    if (!priv_bn || !pub_pt ||
+        !EC_POINT_mul(group, pub_pt, priv_bn, NULL, NULL, NULL) ||
+        !EC_KEY_set_private_key(eckey, priv_bn) ||
+        !EC_KEY_set_public_key(eckey, pub_pt)) {
+        BN_free(priv_bn);
+        EC_POINT_free(pub_pt);
+        EC_KEY_free(eckey);
+        return NULL;
+    }
+
+    BN_free(priv_bn);
+    EC_POINT_free(pub_pt);
+
+    EVP_PKEY *pkey = EVP_PKEY_new();
+    if (!pkey || !EVP_PKEY_assign_EC_KEY(pkey, eckey)) {
+        EC_KEY_free(eckey);
+        EVP_PKEY_free(pkey);
+        return NULL;
+    }
+    return pkey;
+}
+
+static int extract_pubkey_xy_le(EVP_PKEY *pkey, uint8_t x_le[32], uint8_t y_le[32])
+{
+    uint8_t pub_uncomp[65];
+    size_t pub_len = sizeof(pub_uncomp);
+    if (!EVP_PKEY_get_octet_string_param(pkey, "pub", pub_uncomp, sizeof(pub_uncomp), &pub_len) ||
+        pub_len != 65 || pub_uncomp[0] != 0x04) {
+        return -1;
+    }
+    for (int i = 0; i < 32; i++) {
+        x_le[i] = pub_uncomp[1 + (31 - i)];
+        y_le[i] = pub_uncomp[33 + (31 - i)];
+    }
+    return 0;
+}
+
+int syna_pairing_generate_request(char **out_key_pem, uint8_t *out_packet, size_t *out_packet_len)
+{
+    if (!out_key_pem || !out_packet || !out_packet_len) return -1;
+    *out_key_pem = NULL;
+    *out_packet_len = 0;
+
+    EVP_PKEY *host_key = NULL;
+    EVP_PKEY_CTX *kctx = EVP_PKEY_CTX_new_id(EVP_PKEY_EC, NULL);
+    if (!kctx) return -2;
+    if (EVP_PKEY_keygen_init(kctx) <= 0 ||
+        EVP_PKEY_CTX_set_ec_paramgen_curve_nid(kctx, NID_X9_62_prime256v1) <= 0 ||
+        EVP_PKEY_keygen(kctx, &host_key) <= 0) {
+        EVP_PKEY_CTX_free(kctx);
+        return -3;
+    }
+    EVP_PKEY_CTX_free(kctx);
+
+    /* Export PKCS#8 PEM private key */
+    BIO *bio = BIO_new(BIO_s_mem());
+    if (!bio || !PEM_write_bio_PrivateKey(bio, host_key, NULL, NULL, 0, NULL, NULL)) {
+        BIO_free(bio);
+        EVP_PKEY_free(host_key);
+        return -4;
+    }
+    char *pem_ptr = NULL;
+    long pem_len = BIO_get_mem_data(bio, &pem_ptr);
+    char *pem_str = malloc((size_t)pem_len + 1);
+    if (!pem_str) {
+        BIO_free(bio);
+        EVP_PKEY_free(host_key);
+        return -5;
+    }
+    memcpy(pem_str, pem_ptr, (size_t)pem_len);
+    pem_str[pem_len] = '\0';
+    BIO_free(bio);
+
+    uint8_t x_le[32], y_le[32];
+    if (extract_pubkey_xy_le(host_key, x_le, y_le) != 0) {
+        free(pem_str);
+        EVP_PKEY_free(host_key);
+        return -6;
+    }
+    EVP_PKEY_free(host_key);
+
+    /* Build 453-byte 0x4f ownership packet */
+    memset(out_packet, 0, 453);
+    out_packet[0] = SYNA_CMD_OWNERSHIP; /* 0x4f */
+    /* bytes 1..4 are 0x00000000 */
+    /* TLV header: type=5 (u16 LE), length=444 (u16 LE) */
+    out_packet[5] = 0x05; out_packet[6] = 0x00;
+    out_packet[7] = 0xbc; out_packet[8] = 0x01; /* 444 = 0x01bc */
+
+    uint8_t *cert = out_packet + 9;
+    /* Cert header: curve_id=0x17 (u32 LE), coord_bits=32 (u32 LE) */
+    cert[0] = 0x17; cert[4] = 32;
+    memcpy(cert + 8, x_le, 32);
+    memcpy(cert + 76, y_le, 32);
+
+    /* Sign 184-byte certificate body with deterministic vendor signer */
+    EVP_PKEY *signer = derive_vendor_signer();
+    if (!signer) {
+        free(pem_str);
+        return -7;
+    }
+
+    EVP_MD_CTX *mctx = EVP_MD_CTX_new();
+    size_t sig_len = 145;
+    uint8_t sig_buf[145];
+    if (!mctx ||
+        EVP_DigestSignInit(mctx, NULL, EVP_sha256(), NULL, signer) <= 0 ||
+        EVP_DigestSign(mctx, sig_buf, &sig_len, cert, 184) <= 0 ||
+        sig_len == 0 || sig_len > 145) {
+        EVP_MD_CTX_free(mctx);
+        EVP_PKEY_free(signer);
+        free(pem_str);
+        return -8;
+    }
+    EVP_MD_CTX_free(mctx);
+    EVP_PKEY_free(signer);
+
+    cert[184] = (uint8_t)(sig_len & 0xff);
+    cert[185] = (uint8_t)((sig_len >> 8) & 0xff);
+    cert[186] = (uint8_t)((sig_len >> 16) & 0xff);
+    cert[187] = (uint8_t)((sig_len >> 24) & 0xff);
+    memcpy(cert + 188, sig_buf, sig_len);
+
+    *out_key_pem = pem_str;
+    *out_packet_len = 453;
+    return 0;
+}
+
+int syna_pairing_validate_request(const char *host_key_pem, const uint8_t *packet, size_t packet_len)
+{
+    if (!host_key_pem || !packet || packet_len != 453) return -1;
+    if (packet[0] != SYNA_CMD_OWNERSHIP ||
+        packet[1] != 0 || packet[2] != 0 || packet[3] != 0 || packet[4] != 0)
+        return -2;
+    if (packet[5] != 0x05 || packet[6] != 0x00 || packet[7] != 0xbc || packet[8] != 0x01)
+        return -3;
+
+    const uint8_t *cert = packet + 9;
+    if (cert[0] != 0x17 || cert[1] != 0 || cert[2] != 0 || cert[3] != 0 ||
+        cert[4] != 32   || cert[5] != 0 || cert[6] != 0 || cert[7] != 0)
+        return -4;
+
+    BIO *bio = BIO_new_mem_buf(host_key_pem, -1);
+    if (!bio) return -5;
+    EVP_PKEY *host_key = PEM_read_bio_PrivateKey(bio, NULL, NULL, NULL);
+    BIO_free(bio);
+    if (!host_key) return -6;
+
+    uint8_t x_le[32], y_le[32];
+    int rc = extract_pubkey_xy_le(host_key, x_le, y_le);
+    EVP_PKEY_free(host_key);
+    if (rc != 0) return -7;
+
+    if (memcmp(cert + 8, x_le, 32) != 0 || memcmp(cert + 76, y_le, 32) != 0)
+        return -8;
+
+    for (size_t i = 40; i < 76; i++) {
+        if (cert[i] != 0) return -9;
+    }
+    for (size_t i = 108; i < 184; i++) {
+        if (cert[i] != 0) return -9;
+    }
+
+    uint32_t sig_len = (uint32_t)cert[184] | ((uint32_t)cert[185] << 8) |
+                       ((uint32_t)cert[186] << 16) | ((uint32_t)cert[187] << 24);
+    if (sig_len < 1 || sig_len > 145) return -10;
+    for (size_t i = 188 + sig_len; i < 444; i++) {
+        if (cert[i] != 0) return -11;
+    }
+
+    EVP_PKEY *signer = derive_vendor_signer();
+    if (!signer) return -12;
+
+    EVP_MD_CTX *mctx = EVP_MD_CTX_new();
+    int vrc = -13;
+    if (mctx &&
+        EVP_DigestVerifyInit(mctx, NULL, EVP_sha256(), NULL, signer) > 0 &&
+        EVP_DigestVerify(mctx, cert + 188, sig_len, cert, 184) == 1) {
+        vrc = 0;
+    }
+    EVP_MD_CTX_free(mctx);
+    EVP_PKEY_free(signer);
+    return vrc;
+}
+
+int syna_pairing_extract_credentials(const uint8_t *ownership_reply, size_t ownership_reply_len,
+                                     const uint8_t *public_material, size_t public_material_len,
+                                     uint8_t *out_host_cert, size_t *out_host_cert_len,
+                                     uint8_t *out_server_ecdh_pub, size_t *out_server_ecdh_pub_len)
+{
+    if (!ownership_reply || !public_material ||
+        !out_host_cert || !out_host_cert_len ||
+        !out_server_ecdh_pub || !out_server_ecdh_pub_len)
+        return -1;
+
+    /* Validate 298-byte ownership reply: status=0 (2B), length=184 (4B LE), cert[184] */
+    if (ownership_reply_len != 298 || ownership_reply[0] != 0 || ownership_reply[1] != 0)
+        return -2;
+    uint32_t cert_len = (uint32_t)ownership_reply[2] | ((uint32_t)ownership_reply[3] << 8) |
+                        ((uint32_t)ownership_reply[4] << 16) | ((uint32_t)ownership_reply[5] << 24);
+    if (cert_len != 184) return -3;
+
+    /* Validate 926-byte public material reply: status=0 (2B), ECDH block at 526..926 */
+    if (public_material_len != 926 || public_material[0] != 0 || public_material[1] != 0)
+        return -4;
+
+    memcpy(out_host_cert, ownership_reply + 6, 184);
+    *out_host_cert_len = 184;
+
+    /* Server ECDH public point: X_le at 534..566, Y_le at 602..634 -> uncompressed 0x04 || X_be || Y_be */
+    out_server_ecdh_pub[0] = 0x04;
+    for (int i = 0; i < 32; i++) {
+        out_server_ecdh_pub[1 + i]  = public_material[534 + (31 - i)];
+        out_server_ecdh_pub[33 + i] = public_material[602 + (31 - i)];
+    }
+    *out_server_ecdh_pub_len = 65;
+    return 0;
+}
+

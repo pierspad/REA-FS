@@ -56,17 +56,18 @@ This checklist instantiates [`docs/re-checklist-template.md`](re-checklist-templ
 
 ---
 
-## Phase 6 — Remaining Tasks for Native `libfprint` Upstreaming
+## Phase 6 — Native `libfprint` Upstreaming Progress & Remaining Tasks
 
 To move `drivers/syna_tod` from an external `libfprint-tod` plugin into an upstream-mergeable driver inside `workspace/libfprint/libfprint/drivers/synaptics_wbdi/`:
 
-- [ ] **1. Pre-Init Hardware Verification (`0x01` + `0x19`/`0x75`):**
-  - Query and assert ROM version (`6.20` build `154`) and module ID (`0x2449`) before sending the `0x80` capture initializer sequence.
-- [ ] **2. Programmatic `0x80` Capture Initializer & `0x82` Frame Request:**
-  - Replace the external `capture_init.bin` (723 bytes) and `capture_packet.bin` (137 bytes) files with compiled-in const arrays / register serializer functions, gated by the hardware version check above.
-- [ ] **3. Self-Contained Host Pairing (`0x47` Certificate Provisioning):**
-  - Implement first-use host ECDSA P-256 keypair generation and sensor certificate exchange in C so a clean Linux install can pair with an unprovisioned `06cb:00dc` sensor without importing keys from a prior pairing session.
-- [ ] **4. Port Synchronous `libusb` Calls to Asynchronous `FpiSsm` + `FpiUsbTransfer`:**
-  - Convert `syna_usb.c` and the GTask worker threads in `syna_device.c` into `libfprint`'s native non-blocking state machine (`FpiSsm`) using `fpi_usb_transfer_new()` and `fpi_usb_transfer_submit()`.
-- [ ] **5. Upstream `umockdev` Test Suite:**
-  - Add synthetic/sanitized USB + TLS session traces under `workspace/libfprint/tests/` so upstream CI can test open, enroll, verify, and identify without physical hardware.
+- [x] **1. Pre-Init Hardware Verification (`0x01` + `0x75`):**
+  - Implemented `syna_parse_version_response()` and `syna_parse_sensor_id_response()` in `drivers/syna_tod/src/syna_proto.h` and integrated them at step `0` of device open to verify ROM `6.20` build `154` (product `0x33`) and sensor module `0x0190:0x00a2` (`86C TM-P3568-001` / type `0x2449`) before loading credentials or sending capture tables.
+- [x] **2. Compiled-In ROM 6.20 `0x06` Capture Initializer & `0x02` Frame Request (`syna_capture_tables.h`):**
+  - Embedded `SYNA_BUILTIN_CAPTURE_INIT` (4,676 bytes) and `SYNA_BUILTIN_CAPTURE_PACKET` (1,917 bytes) directly in `drivers/syna_tod/src/syna_capture_tables.h` with automatic fallback in `syna_oem_load()`, eliminating any runtime dependency on external `capture_init.bin` / `capture_packet.bin` files.
+- [x] **3. Self-Contained C Host Pairing (`0x4f` Ownership + `0x50` Public Material):**
+  - Implemented `syna_pairing_generate_request()`, `syna_pairing_validate_request()`, and `syna_pairing_extract_credentials()` in `drivers/syna_tod/src/syna_tls.c` using the deterministic ROM `6.20` `HS_KEY_PAIR_GEN` EC P-256 vendor signer (`syna_tls_prf`), plus `syna_oem_save_credentials()` and first-boot auto-pairing (`SYNA_ALLOW_AUTO_PAIR=1`) in `syna_device.c`.
+- [x] **4. Non-Blocking `FpiSsm` + `FpiUsbTransfer` Open State Machine (`drivers/syna_tod/src/syna_ssm.c`):**
+  - Implemented `syna_ssm_open_new()` in `drivers/syna_tod/src/syna_ssm.c` covering all 16 asynchronous open/pairing/TLS/init states via `fpi_ssm_new()` and `fpi_usb_transfer_submit()`.
+- [ ] **5. Capture Stream `FpiSsm` Migration & Upstream `umockdev` Test Suite:**
+  - Migrate the `0x02`/`0x04` bulk capture loop from `GTask` to `FpiSsm` and add synthetic USB + TLS session traces under `workspace/libfprint/tests/` so upstream CI can test open, enroll, verify, and identify without physical hardware.
+

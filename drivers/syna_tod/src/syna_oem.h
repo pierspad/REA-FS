@@ -36,6 +36,15 @@ typedef struct {
 int syna_oem_load(const char *data_dir, SynaOemData *oem);
 
 /**
+ * Atomically persist newly paired credentials (host_key.pem, host_cert.bin, server_ecdh_pub.bin)
+ * to data_dir (or SYNA_DEFAULT_DATA_DIR if NULL) with 0700 dir / 0600 file permissions.
+ */
+int syna_oem_save_credentials(const char *data_dir,
+                              const char *host_key_pem,
+                              const uint8_t *host_cert, size_t host_cert_len,
+                              const uint8_t *server_ecdh_pub, size_t server_ecdh_pub_len);
+
+/**
  * Free memory in SynaOemData.
  */
 void syna_oem_free(SynaOemData *oem);
@@ -43,3 +52,4 @@ void syna_oem_free(SynaOemData *oem);
 #ifdef __cplusplus
 }
 #endif
+

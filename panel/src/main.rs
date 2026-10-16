@@ -1198,6 +1198,7 @@ impl Panel {
     }
 
     fn note_ui(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
+        let mut quick_note = None;
         card(ui, |ui| {
             ui.label(RichText::new("Nota per l’agente").size(16.0).strong());
             ui.label(
@@ -1205,6 +1206,19 @@ impl Panel {
                     .size(12.5)
                     .color(MUTED),
             );
+            ui.add_space(4.0);
+            ui.horizontal_wrapped(|ui| {
+                for (chip, text) in [
+                    ("Veloce e fluido", "Feedback rapido: riconoscimento veloce e transizioni fluide"),
+                    ("Tocco leggero", "Feedback rapido: appoggiato il dito con pressione leggera"),
+                    ("Dito angolato", "Feedback rapido: appoggiato il dito ruotato / di lato"),
+                    ("Falso rifiuto", "Feedback rapido: dito registrato ma non riconosciuto al primo tocco"),
+                ] {
+                    if button(ui, None, chip, CARD_HI, Vec2::new(112.0, 26.0), true).clicked() {
+                        quick_note = Some(text.to_string());
+                    }
+                }
+            });
             ui.add_space(4.0);
             ui.horizontal(|ui| {
                 let edit = egui::TextEdit::singleline(&mut self.note_draft)
@@ -1227,6 +1241,10 @@ impl Panel {
                 }
             }
         });
+        if let Some(text) = quick_note {
+            self.note_draft = text;
+            self.save_note(ctx);
+        }
     }
 }
 

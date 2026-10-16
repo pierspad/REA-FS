@@ -108,6 +108,34 @@ int syna_tls_decrypt_app_data(SynaTlsContext *ctx,
  */
 int syna_tls_build_close_notify(SynaTlsContext *ctx, uint8_t *out, size_t *out_len);
 
+/**
+ * Generate a new EC P-256 host keypair (PEM) and build the 453-byte command 0x4f
+ * ownership/pairing request signed with the deterministic ROM 6.20 HS_KEY_PAIR_GEN key.
+ *
+ * @param out_key_pem   Receives newly allocated PEM private key string (caller frees).
+ * @param out_packet    Buffer of at least 453 bytes receiving the 0x4f request.
+ * @param out_packet_len Receives 453.
+ * @return 0 on success, negative on error.
+ */
+int syna_pairing_generate_request(char **out_key_pem, uint8_t *out_packet, size_t *out_packet_len);
+
+/**
+ * Validate a 453-byte 0x4f ownership packet against the given host PEM private key
+ * and verify the ECDSA-SHA256 signature under the ROM 6.20 root signer.
+ */
+int syna_pairing_validate_request(const char *host_key_pem, const uint8_t *packet, size_t packet_len);
+
+/**
+ * Extract the 184-byte host certificate from a 298-byte command 0x4f ownership reply,
+ * and extract the 65-byte uncompressed server ECDH P-256 public key (0x04 || X_be || Y_be)
+ * from a 926-byte command 0x50 public-material reply.
+ */
+int syna_pairing_extract_credentials(const uint8_t *ownership_reply, size_t ownership_reply_len,
+                                     const uint8_t *public_material, size_t public_material_len,
+                                     uint8_t *out_host_cert, size_t *out_host_cert_len,
+                                     uint8_t *out_server_ecdh_pub, size_t *out_server_ecdh_pub_len);
+
 #ifdef __cplusplus
 }
 #endif
+

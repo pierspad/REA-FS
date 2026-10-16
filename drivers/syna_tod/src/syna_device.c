@@ -458,10 +458,81 @@ syna_open_thread (GTask *task, gpointer source_object, gpointer task_data, GCanc
     }
     claimed = TRUE;
 
-    /* Load OEM blobs and host credentials */
+    /* 0. Hardware Identity Preflight (0x01 ROM Version + 0x75 Sensor Module ID) */
+    {
+        uint8_t ver_cmd = SYNA_CMD_VERSION;
+        uint8_t ver_resp[64];
+        size_t ver_resp_len = 0;
+        if (!syna_usb_cmd (self->usb_device, &ver_cmd, 1, ver_resp, sizeof (ver_resp), &ver_resp_len, cancellable, &error)) {
+            goto fail;
+        }
+        SynaVersionInfo ver_info;
+        if (syna_parse_version_response (ver_resp, ver_resp_len, &ver_info) != 0) {
+            error = g_error_new_literal (G_IO_ERROR, G_IO_ERROR_NOT_SUPPORTED,
+                                         "Unsupported Synaptics ROM version or build for 06cb:00dc");
+            goto fail;
+        }
+
+        uint8_t id_cmd = SYNA_CMD_SENSOR_ID;
+        uint8_t id_resp[32];
+        size_t id_resp_len = 0;
+        if (!syna_usb_cmd (self->usb_device, &id_cmd, 1, id_resp, sizeof (id_resp), &id_resp_len, cancellable, &error)) {
+            goto fail;
+        }
+        SynaSensorIdInfo id_info;
+        if (syna_parse_sensor_id_response (id_resp, id_resp_len, &id_info) != 0) {
+            error = g_error_new_literal (G_IO_ERROR, G_IO_ERROR_NOT_SUPPORTED,
+                                         "Unsupported Synaptics sensor module ID for 06cb:00dc");
+            goto fail;
+        }
+        g_message ("Hardware verified: ROM %u.%u build %u (product 0x%02x), sensor module 0x%04x:0x%04x",
+                   ver_info.version_major, ver_info.version_minor, ver_info.build_number,
+                   ver_info.product_id, id_info.major, id_info.minor);
+    }
+
+    /* Load OEM blobs and host credentials (or run first-boot pairing if allowed) */
     if (syna_oem_load (NULL, &self->oem) != 0) {
-        error = g_error_new_literal (G_IO_ERROR, G_IO_ERROR_NOT_FOUND, "Failed to load Synaptics OEM pairing credentials");
-        goto fail;
+        const char *allow_pair = getenv ("SYNA_ALLOW_AUTO_PAIR");
+        if (allow_pair && strcmp (allow_pair, "1") == 0) {
+            g_message ("No existing credentials found; running first-boot host pairing (0x4f + 0x50)...");
+            char *new_key_pem = NULL;
+            uint8_t own_req[453];
+            size_t own_req_len = 0;
+            if (syna_pairing_generate_request (&new_key_pem, own_req, &own_req_len) != 0) {
+                error = g_error_new_literal (G_IO_ERROR, G_IO_ERROR_FAILED, "Failed to generate 0x4f host pairing request");
+                goto fail;
+            }
+            uint8_t own_resp[512];
+            size_t own_resp_len = 0;
+            if (!syna_usb_cmd (self->usb_device, own_req, own_req_len, own_resp, sizeof (own_resp), &own_resp_len, cancellable, &error)) {
+                free (new_key_pem);
+                goto fail;
+            }
+            uint8_t pub_cmd[13] = { SYNA_CMD_PUBLIC_MAT, 0 };
+            uint8_t pub_resp[1024];
+            size_t pub_resp_len = 0;
+            if (!syna_usb_cmd (self->usb_device, pub_cmd, sizeof (pub_cmd), pub_resp, sizeof (pub_resp), &pub_resp_len, cancellable, &error)) {
+                free (new_key_pem);
+                goto fail;
+            }
+            uint8_t host_cert[184];
+            size_t host_cert_len = 0;
+            uint8_t server_pub[65];
+            size_t server_pub_len = 0;
+            if (syna_pairing_extract_credentials (own_resp, own_resp_len, pub_resp, pub_resp_len,
+                                                  host_cert, &host_cert_len, server_pub, &server_pub_len) != 0 ||
+                syna_oem_save_credentials (NULL, new_key_pem, host_cert, host_cert_len, server_pub, server_pub_len) != 0 ||
+                syna_oem_load (NULL, &self->oem) != 0) {
+                free (new_key_pem);
+                error = g_error_new_literal (G_IO_ERROR, G_IO_ERROR_FAILED, "First-boot pairing credential extraction/save failed");
+                goto fail;
+            }
+            free (new_key_pem);
+            g_message ("First-boot pairing succeeded and saved to %s", SYNA_DEFAULT_DATA_DIR);
+        } else {
+            error = g_error_new_literal (G_IO_ERROR, G_IO_ERROR_NOT_FOUND, "Failed to load Synaptics OEM pairing credentials");
+            goto fail;
+        }
     }
 
     /* Init TLS */

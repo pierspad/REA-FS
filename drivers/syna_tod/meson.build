@@ -20,6 +20,7 @@ gio_dep = dependency('gio-2.0', required: true)
 
 tod_sources = [
     'src/syna_device.c',
+    'src/syna_ssm.c',
     'src/syna_template.c',
     'src/syna_mode2.c',
     'src/syna_matcher.c',

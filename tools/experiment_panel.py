@@ -119,6 +119,7 @@ class EventWriter:
         self.session_dir = session_dir.resolve()
         self.parameters = dict(parameters or {})
         self.user_notes = []
+        self.driver_telemetry = []
         self.last_event = None
         stamp = datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S.%fZ')
         self.run_dir = self.session_dir/f'{stamp}-{self.run_id}'
@@ -143,6 +144,7 @@ class EventWriter:
         self.event_count += 1
         if event_type == 'started': self.started_event = event
         if event_type == 'user_note': self.user_notes.append({'timestamp': event['timestamp'], 'text': event['text']})
+        if event_type == 'driver_telemetry': self.driver_telemetry.extend(event.get('messages', []))
         if event_type in TERMINAL or event_type in ('started', 'user_note'):
             self._write_summary(event if event_type != 'user_note' else (self.last_event or event))
         if event_type in TERMINAL: self._append_index(event)
@@ -153,6 +155,7 @@ class EventWriter:
         self.last_event = last_event
         summary = dict(self.base, started_event=self.started_event, last_event=last_event,
                        event_count=self.event_count, user_notes=self.user_notes,
+                       driver_telemetry=self.driver_telemetry,
                        events_path=str(self.run_dir/'events.jsonl'),
                        plan_path=str(self.run_dir/'plan.json'), summary_path=str(self.run_dir/'summary.json'))
         content = json.dumps(summary, ensure_ascii=False, indent=2)+'\n'
@@ -317,7 +320,27 @@ def _fprint_state(messages, stop, object_path):
             if not reported_unavailable:
                 messages.put(('limitation', 'Lettura dello stato D-Bus non riuscita', b''))
                 reported_unavailable = True
-        stop.wait(.5)
+        stop.wait(.08)
+
+
+def _collect_fprintd_diagnostics(started_iso: str) -> list[str]:
+    """Extract sanitized driver diagnostic lines from journalctl for fprintd.service."""
+    if not shutil.which('journalctl'): return []
+    try:
+        res = subprocess.run(
+            ['journalctl', '-u', 'fprintd.service', '--since', started_iso, '--no-pager', '-o', 'cat'],
+            capture_output=True, text=True, timeout=1.5
+        )
+        if res.returncode != 0: return []
+        keep = ('Hardware verified:', 'Open:', 'Capture', 'Synaptics ', 'Found baseline cache')
+        lines = []
+        for raw_line in res.stdout.splitlines():
+            line = raw_line.strip()
+            if any(k in line for k in keep):
+                lines.append(line[:240])
+        return lines[-16:]
+    except (OSError, subprocess.TimeoutExpired):
+        return []
 
 
 def plan_fingerprint(plan):
@@ -438,6 +461,9 @@ def run_experiment(session_dir, experiment_id, cancel_on_eof=False, root=ROOT, e
             writer.emit('stopping', reason=reason or 'remaining_processes')
             forced = _stop_group(process)
         else: process.wait()
+        if task['adapter'] == 'fprintd' and writer.started_event:
+            diag = _collect_fprintd_diagnostics(writer.started_event['timestamp'])
+            if diag: writer.emit('driver_telemetry', 'device', messages=diag)
         if reason:
             terminal = 'timeout' if reason == 'timeout' else 'stopped' if reason == 'cancel' else 'failed'
             writer.emit(terminal, reason=reason, exit_code=process.returncode,

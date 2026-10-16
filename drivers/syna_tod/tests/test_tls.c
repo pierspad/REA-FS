@@ -78,11 +78,64 @@ static void test_encrypt_decrypt_roundtrip(void)
     printf("  [PASS] test_encrypt_decrypt_roundtrip & tamper_detection\n");
 }
 
+static void test_pairing_request_and_extraction(void)
+{
+    char *key_pem = NULL;
+    uint8_t packet[453];
+    size_t packet_len = 0;
+
+    assert(syna_pairing_generate_request(&key_pem, packet, &packet_len) == 0);
+    assert(key_pem != NULL && strlen(key_pem) > 100);
+    assert(packet_len == 453);
+    assert(packet[0] == 0x4f);
+
+    /* Validate generated 0x4f packet and verify deterministic ROM 6.20 ECDSA signature */
+    assert(syna_pairing_validate_request(key_pem, packet, packet_len) == 0);
+
+    /* Tamper with 1 byte in certificate body -> signature verification must fail */
+    packet[20] ^= 0x01;
+    assert(syna_pairing_validate_request(key_pem, packet, packet_len) != 0);
+    packet[20] ^= 0x01;
+    assert(syna_pairing_validate_request(key_pem, packet, packet_len) == 0);
+
+    /* Test credential extraction from synthetic 298B ownership reply + 926B public material reply */
+    uint8_t own_reply[298];
+    memset(own_reply, 0, sizeof(own_reply));
+    own_reply[2] = 184; /* length = 184 LE */
+    memcpy(own_reply + 6, packet + 9, 184);
+
+    uint8_t pub_mat[926];
+    memset(pub_mat, 0, sizeof(pub_mat));
+    for (int i = 0; i < 32; i++) {
+        pub_mat[534 + i] = (uint8_t)(i + 1);
+        pub_mat[602 + i] = (uint8_t)(i + 101);
+    }
+
+    uint8_t host_cert[184];
+    size_t host_cert_len = 0;
+    uint8_t server_ecdh[65];
+    size_t server_ecdh_len = 0;
+    assert(syna_pairing_extract_credentials(own_reply, sizeof(own_reply),
+                                            pub_mat, sizeof(pub_mat),
+                                            host_cert, &host_cert_len,
+                                            server_ecdh, &server_ecdh_len) == 0);
+    assert(host_cert_len == 184);
+    assert(memcmp(host_cert, packet + 9, 184) == 0);
+    assert(server_ecdh_len == 65 && server_ecdh[0] == 0x04);
+    assert(server_ecdh[1] == 32 && server_ecdh[32] == 1);
+    assert(server_ecdh[33] == 132 && server_ecdh[64] == 101);
+
+    free(key_pem);
+    printf("  [PASS] test_pairing_request_and_extraction\n");
+}
+
 int main(void)
 {
     printf("Running syna_tls unit tests...\n");
     test_prf();
     test_encrypt_decrypt_roundtrip();
+    test_pairing_request_and_extraction();
     printf("All syna_tls unit tests passed!\n");
     return 0;
 }
+

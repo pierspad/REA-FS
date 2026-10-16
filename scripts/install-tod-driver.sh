@@ -20,13 +20,15 @@ done
 TOD_DEST_DIR="$(pkg-config --variable=tod_driversdir libfprint-2-tod-1)"
 [[ "$TOD_DEST_DIR" == /* && "$TOD_DEST_DIR" != / ]] || { echo 'Invalid TOD plugin directory.' >&2; exit 1; }
 [[ -f "${BUILD_DIR}/libsyna_00dc_tod.so" ]] || { echo 'Build locally with ninja before installing.' >&2; exit 1; }
-for name in host_key.pem host_cert.bin server_ecdh_pub.bin capture_init.bin capture_packet.bin; do
+for name in host_key.pem host_cert.bin server_ecdh_pub.bin; do
     [[ -s "$CREDENTIALS/$name" && ! -L "$CREDENTIALS/$name" ]] || { echo "Missing or symlinked credential: $name" >&2; exit 1; }
     [[ ! -L "$CRED_DEST_DIR/$name" ]] || { echo "Refusing symlinked destination: $name" >&2; exit 1; }
 done
-if [[ -f "$CREDENTIALS/baseline_cache.bin" && ! -L "$CREDENTIALS/baseline_cache.bin" ]]; then
-    [[ ! -L "$CRED_DEST_DIR/baseline_cache.bin" ]] || { echo "Refusing symlinked destination: baseline_cache.bin" >&2; exit 1; }
-fi
+for name in capture_init.bin capture_packet.bin baseline_cache.bin; do
+    if [[ -f "$CREDENTIALS/$name" && ! -L "$CREDENTIALS/$name" ]]; then
+        [[ ! -L "$CRED_DEST_DIR/$name" ]] || { echo "Refusing symlinked destination: $name" >&2; exit 1; }
+    fi
+done
 [[ ! -L "$CRED_DEST_DIR" && ! -L "$UDEV_DEST" && ! -L "$POLKIT_DEST" ]] || { echo 'Refusing symlinked destination.' >&2; exit 1; }
 openssl pkey -in "$CREDENTIALS/host_key.pem" -check -noout >/dev/null 2>&1 || { echo 'Invalid private key.' >&2; exit 1; }
 echo "Module: ${BUILD_DIR}/libsyna_00dc_tod.so -> ${TOD_DEST_DIR}/libsyna_00dc_tod.so"
@@ -48,12 +50,14 @@ if [[ -f "$POLKIT_DEST" ]]; then cp -p "$POLKIT_DEST" "$BACKUP_DIR/polkit.rules"
 if [[ -d "$CRED_DEST_DIR" ]]; then cp -a "$CRED_DEST_DIR" "$BACKUP_DIR/credentials"; fi
 install -d -m 0755 "$TOD_DEST_DIR"
 install -d -m 0700 "$CRED_DEST_DIR"
-for name in host_key.pem host_cert.bin server_ecdh_pub.bin capture_init.bin capture_packet.bin; do
+for name in host_key.pem host_cert.bin server_ecdh_pub.bin; do
     install -m 0600 "$CREDENTIALS/$name" "$CRED_DEST_DIR/$name"
 done
-if [[ -f "$CREDENTIALS/baseline_cache.bin" ]]; then
-    install -m 0600 "$CREDENTIALS/baseline_cache.bin" "$CRED_DEST_DIR/baseline_cache.bin"
-fi
+for name in capture_init.bin capture_packet.bin baseline_cache.bin; do
+    if [[ -f "$CREDENTIALS/$name" ]]; then
+        install -m 0600 "$CREDENTIALS/$name" "$CRED_DEST_DIR/$name"
+    fi
+done
 install -m 0755 "${BUILD_DIR}/libsyna_00dc_tod.so" "$TOD_DEST_DIR/libsyna_00dc_tod.so"
 install -m 0644 "${REPO_DIR}/drivers/syna_tod/60-syna-00dc-tod.rules" "$UDEV_DEST"
 if [[ -d "/etc/polkit-1/rules.d" ]]; then
