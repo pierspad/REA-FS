@@ -66,8 +66,9 @@ To move `drivers/syna_tod` from an external `libfprint-tod` plugin into an upstr
   - Embedded `SYNA_BUILTIN_CAPTURE_INIT` (4,676 bytes) and `SYNA_BUILTIN_CAPTURE_PACKET` (1,917 bytes) directly in `drivers/syna_tod/src/syna_capture_tables.h` with automatic fallback in `syna_oem_load()`, eliminating any runtime dependency on external `capture_init.bin` / `capture_packet.bin` files.
 - [x] **3. Self-Contained C Host Pairing (`0x4f` Ownership + `0x50` Public Material):**
   - Implemented `syna_pairing_generate_request()`, `syna_pairing_validate_request()`, and `syna_pairing_extract_credentials()` in `drivers/syna_tod/src/syna_tls.c` using the deterministic ROM `6.20` `HS_KEY_PAIR_GEN` EC P-256 vendor signer (`syna_tls_prf`), plus `syna_oem_save_credentials()` and first-boot auto-pairing (`SYNA_ALLOW_AUTO_PAIR=1`) in `syna_device.c`.
-- [x] **4. Non-Blocking `FpiSsm` + `FpiUsbTransfer` Open State Machine (`drivers/syna_tod/src/syna_ssm.c`):**
-  - Implemented `syna_ssm_open_new()` in `drivers/syna_tod/src/syna_ssm.c` covering all 16 asynchronous open/pairing/TLS/init states via `fpi_ssm_new()` and `fpi_usb_transfer_submit()`.
-- [ ] **5. Capture Stream `FpiSsm` Migration & Upstream `umockdev` Test Suite:**
-  - Migrate the `0x02`/`0x04` bulk capture loop from `GTask` to `FpiSsm` and add synthetic USB + TLS session traces under `workspace/libfprint/tests/` so upstream CI can test open, enroll, verify, and identify without physical hardware.
+- [x] **4. Non-Blocking `FpiSsm` + `FpiUsbTransfer` Open & Capture State Machines (`drivers/syna_tod/src/syna_ssm.c`):**
+  - Implemented `syna_ssm_open_new()` (16 states: reset, claim, `0x01`/`0x75` hardware verification, optional `0x4f`/`0x50` pairing, TLS 1.2 handshake, `0x1a`/`0x06` init) and `syna_ssm_capture_new()` (11 states: `0x02` start, chunked 17,024-byte bulk stream reads on `EP 0x82`, contact/lift detection, `0x04` stop, 6-frame alignment + bandpass filter).
+- [ ] **5. Upstream `umockdev` Test Suite:**
+  - Record synthetic USB + TLS session traces under `workspace/libfprint/tests/` so upstream CI can test open, enroll, verify, and identify without physical hardware (see [`docs/libfprint-upstreaming.md`](libfprint-upstreaming.md)).
+
 

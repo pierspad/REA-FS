@@ -44,16 +44,25 @@ def main():
     if platform.system() == 'Linux' and platform.machine() == 'x86_64' and shutil.which('cc'):
         env.setdefault('CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER', 'cc')
     bin_path = ROOT / 'panel/target/release/rea-fs-panel'
-    if not is_binary_up_to_date(bin_path, ROOT / 'panel'):
-        build_res = subprocess.call(
-            ['cargo', 'build', '--release', '--locked', '--manifest-path', str(ROOT / 'panel/Cargo.toml')],
+    try:
+        if not is_binary_up_to_date(bin_path, ROOT / 'panel'):
+            build_res = subprocess.call(
+                ['cargo', 'build', '--release', '--locked', '--manifest-path', str(ROOT / 'panel/Cargo.toml')],
+                cwd=ROOT, env=env
+            )
+            if build_res != 0:
+                return build_res
+        return subprocess.call(
+            [str(bin_path), '--repo', str(ROOT), '--session-dir', str(session)],
             cwd=ROOT, env=env
         )
-        if build_res != 0:
-            return build_res
-    return subprocess.call(
-        [str(bin_path), '--repo', str(ROOT), '--session-dir', str(session)],
-        cwd=ROOT, env=env
-    )
+    except KeyboardInterrupt:
+        return 0
 
-if __name__=='__main__':sys.exit(main())
+
+if __name__ == '__main__':
+    try:
+        sys.exit(main())
+    except KeyboardInterrupt:
+        sys.exit(0)
+

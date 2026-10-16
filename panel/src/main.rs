@@ -560,6 +560,9 @@ impl Panel {
                                     }
                                     self.plan = Some(plan);
                                     self.reset_states();
+                                    if self.enrolled.is_none() {
+                                        self.refresh_list(ctx);
+                                    }
                                 }
                             }
                         }
@@ -640,8 +643,8 @@ impl Panel {
         }
         self.tab = tab;
         self.confirm_delete = None;
-        // Opening the list is read-only: refresh it so the trash view is current.
-        if tab == Tab::Manage {
+        // Opening Manage or Enroll (when not yet loaded) is read-only: refresh it so the finger badges are current.
+        if tab == Tab::Manage || (tab == Tab::Enroll && self.enrolled.is_none()) {
             self.refresh_list(ctx);
         }
     }
