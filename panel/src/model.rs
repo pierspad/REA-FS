@@ -42,6 +42,28 @@ pub enum Phase {
     Lift,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FingerZone {
+    All,
+    Center,
+    Tip,
+    Base,
+    Edges,
+}
+
+pub fn enroll_zone_for_stage(completed: u64, total: u64) -> (FingerZone, &'static str) {
+    if total == 0 {
+        (FingerZone::All, "Place your finger flat in the center of the reader.")
+    } else {
+        match completed {
+            0..=1 => (FingerZone::Center, "Step 1/4 · Center: place the flat center of your fingertip."),
+            2..=3 => (FingerZone::Tip, "Step 2/4 · Tip: shift slightly forward toward the fingertip."),
+            4..=5 => (FingerZone::Base, "Step 3/4 · Base: shift slightly down toward the lower pad."),
+            _ => (FingerZone::Edges, "Step 4/4 · Edges: tilt slightly left/right to capture the sides."),
+        }
+    }
+}
+
 pub struct State {
     pub active: bool,
     pub run_id: String,
@@ -379,5 +401,28 @@ mod tests {
         assert_eq!(state.result_at, Some(3.2));
         assert_eq!(state.notes, 1);
         assert_eq!(state.result, "verify-match");
+    }
+    #[test]
+    fn enroll_zone_progression_across_stages() {
+        assert_eq!(
+            enroll_zone_for_stage(0, 0),
+            (FingerZone::All, "Place your finger flat in the center of the reader.")
+        );
+        let expected = [
+            (FingerZone::Center, "Step 1/4 · Center: place the flat center of your fingertip."),
+            (FingerZone::Center, "Step 1/4 · Center: place the flat center of your fingertip."),
+            (FingerZone::Tip, "Step 2/4 · Tip: shift slightly forward toward the fingertip."),
+            (FingerZone::Tip, "Step 2/4 · Tip: shift slightly forward toward the fingertip."),
+            (FingerZone::Base, "Step 3/4 · Base: shift slightly down toward the lower pad."),
+            (FingerZone::Base, "Step 3/4 · Base: shift slightly down toward the lower pad."),
+            (FingerZone::Edges, "Step 4/4 · Edges: tilt slightly left/right to capture the sides."),
+            (FingerZone::Edges, "Step 4/4 · Edges: tilt slightly left/right to capture the sides."),
+            (FingerZone::Edges, "Step 4/4 · Edges: tilt slightly left/right to capture the sides."),
+        ];
+        for (completed, (zone, prompt)) in expected.iter().enumerate() {
+            let res = enroll_zone_for_stage(completed as u64, 8);
+            assert_eq!(res.0, *zone, "zone mismatch at completed={completed}");
+            assert_eq!(res.1, *prompt, "prompt mismatch at completed={completed}");
+        }
     }
 }

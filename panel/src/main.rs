@@ -1,7 +1,7 @@
 mod model;
 mod runner;
 use eframe::egui::{self, Color32, CursorIcon, FontId, Pos2, Rect, RichText, Sense, Stroke, Vec2};
-use model::{Envelope, Experiment, Phase, State, shell_quote};
+use model::{Envelope, Experiment, FingerZone, Phase, State, shell_quote};
 use runner::Message;
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -333,7 +333,7 @@ fn card<R>(ui: &mut egui::Ui, add: impl FnOnce(&mut egui::Ui) -> R) -> R {
         .inner
 }
 
-fn fingerprint_scanner(ui: &mut egui::Ui, phase: Phase, result: Option<bool>) {
+fn fingerprint_scanner(ui: &mut egui::Ui, phase: Phase, result: Option<bool>, zone: FingerZone) {
     use std::f32::consts::PI;
     let (rect, _) = ui.allocate_exact_size(Vec2::new(130.0, 145.0), Sense::hover());
     let c = rect.center();
@@ -355,12 +355,36 @@ fn fingerprint_scanner(ui: &mut egui::Ui, phase: Phase, result: Option<bool>) {
     painter.rect_filled(pad, 20.0, fill);
     painter.rect_stroke(pad, 20.0, Stroke::new(2.0, accent), egui::StrokeKind::Inside);
     let core = Pos2::new(c.x, c.y - 5.0);
+
+    let highlight = zone != FingerZone::All && (phase == Phase::Touch || phase == Phase::Hold);
+
     for (i, r) in [6.0f32, 13.0, 20.0, 27.0, 34.0, 41.0].iter().enumerate() {
-        let mut points = arc(core, *r, PI, 2.0 * PI);
         let drop = 12.0 + i as f32 * 6.0;
-        points.insert(0, core + Vec2::new(-r, drop));
-        points.push(core + Vec2::new(*r, drop * 0.85));
-        painter.add(egui::Shape::line(points, Stroke::new(2.2, accent)));
+        if !highlight {
+            let mut points = arc(core, *r, PI, 2.0 * PI);
+            points.insert(0, core + Vec2::new(-r, drop));
+            points.push(core + Vec2::new(*r, drop * 0.85));
+            painter.add(egui::Shape::line(points, Stroke::new(2.2, accent)));
+        } else {
+            let dimmed = Stroke::new(2.2, accent.gamma_multiply(0.28));
+            let target = Stroke::new(2.8, accent);
+
+            let (left_target, crown_target, right_target) = match zone {
+                FingerZone::Center => (i <= 2, i <= 2, i <= 2),
+                FingerZone::Tip => (false, i >= 2, false),
+                FingerZone::Base => (true, false, true),
+                FingerZone::Edges => (i >= 3, false, i >= 3),
+                FingerZone::All => (true, true, true),
+            };
+
+            let left_leg = vec![core + Vec2::new(-r, drop), core + Vec2::new(-r, 0.0)];
+            let crown = arc(core, *r, PI, 2.0 * PI);
+            let right_leg = vec![core + Vec2::new(*r, 0.0), core + Vec2::new(*r, drop * 0.85)];
+
+            painter.add(egui::Shape::line(left_leg, if left_target { target } else { dimmed }));
+            painter.add(egui::Shape::line(crown, if crown_target { target } else { dimmed }));
+            painter.add(egui::Shape::line(right_leg, if right_target { target } else { dimmed }));
+        }
     }
 }
 
@@ -744,7 +768,7 @@ impl Panel {
                 );
                 ui.add_space(4.0);
                 ui.vertical_centered(|ui| {
-                    fingerprint_scanner(ui, phase, if active { None } else { result });
+                    fingerprint_scanner(ui, phase, if active { None } else { result }, FingerZone::All);
                     ui.add_space(4.0);
                     if active {
                         phase_banner(ui, phase, &hint, remaining, true);
@@ -899,8 +923,23 @@ impl Panel {
                 ui.vertical_centered(|ui| {
                     let title = if enroll_finger.is_empty() { finger_label(&selected_id) } else { finger_label(&enroll_finger) };
                     ui.label(RichText::new(format!("3 · Enroll: {title}")).size(20.0).strong());
-                    ui.add_space(4.0);
-                    fingerprint_scanner(ui, phase, if active || terminal.is_empty() { None } else { Some(ok) });
+                    let (zone, zone_prompt) = if active {
+                        model::enroll_zone_for_stage(completed, total)
+                    } else {
+                        (FingerZone::All, "")
+                    };
+                    fingerprint_scanner(ui, phase, if active || terminal.is_empty() { None } else { Some(ok) }, zone);
+                    if active && zone != FingerZone::All && (phase == Phase::Touch || phase == Phase::Hold) {
+                        ui.add_space(2.0);
+                        egui::Frame::new()
+                            .fill(CARD_HI)
+                            .corner_radius(6.0)
+                            .inner_margin(egui::Margin::symmetric(10, 4))
+                            .stroke(Stroke::new(1.0, BORDER))
+                            .show(ui, |ui| {
+                                ui.label(RichText::new(zone_prompt).size(12.5).color(SKY).strong());
+                            });
+                    }
                     ui.add_space(4.0);
                     if active {
                         phase_banner(ui, phase, &hint, remaining, false);
@@ -1151,7 +1190,7 @@ impl Panel {
                     if sim {
                         simulation_visual(ui, completed);
                     } else if fprintd {
-                        fingerprint_scanner(ui, phase, None);
+                        fingerprint_scanner(ui, phase, None, FingerZone::All);
                         phase_banner(ui, phase, &hint, remaining, program(task) == "fprintd-verify");
                     }
                     let color = match terminal.as_str() {
