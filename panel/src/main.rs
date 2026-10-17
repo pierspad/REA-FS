@@ -1338,14 +1338,15 @@ impl eframe::App for Panel {
                 egui::ScrollArea::vertical().show(ui, |ui| {
                     ui.horizontal(|ui| {
                         ui.label(RichText::new("REA-FS").size(24.0).strong());
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            if button(ui, Some(Icon::Refresh), "Reload plan.json", CARD_HI, Vec2::new(165.0, 34.0), !self.loading)
-                                .on_hover_text("Re-read .rea-fs.local/panel/plan.json from disk (auto-polled every second)")
-                                .clicked()
-                            {
-                                self.load(&ctx);
-                            }
-                        });
+                        if self.plan.is_none() || !self.error.is_empty() {
+                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                if button(ui, Some(Icon::Refresh), "Retry loading plan", CARD_HI, Vec2::new(175.0, 34.0), !self.loading)
+                                    .clicked()
+                                {
+                                    self.load(&ctx);
+                                }
+                            });
+                        }
                     });
                     ui.add_space(4.0);
                     if !self.error.is_empty() {

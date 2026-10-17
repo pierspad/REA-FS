@@ -59,6 +59,7 @@ This checklist instantiates [`docs/re-checklist-template.md`](re-checklist-templ
 - [x] **8-Stage Enrollment (`SYNA_ENROLL_STAGES = 8`):** Captures 8 progressive touches (up to 16 diversity-selected sub-templates) to cover diverse angles and placements on the small $144 \times 56$ sensor.
 - [x] **Instant "Hold Still" $\to$ "Lift Finger" Transition:** `syna_capture_finger_sample` returns immediately after the 6-frame burst so `fprintd` emits `enroll-stage-passed` while the finger is still down, switching the GUI to **"LIFT YOUR FINGER"** right away; the next stage waits for physical lift (`rms <= 28.0`) before prompting **"PLACE YOUR FINGER"**.
 - [x] **Multi-Finger `identify` (1:N) Support (`syna_identify`):** Implemented `dev_class->identify` so `fprintd-verify` and desktop PAM login match against **all** enrolled fingers in a single touch.
+- [x] **`FP_DEVICE_FEATURE_DUPLICATES_CHECK` & Empty Gallery `identify`:** Handled empty gallery identify cleanly without error to pass upstream `test_driver_identify_empty_gallery`. Added `FP_DEVICE_FEATURE_DUPLICATES_CHECK` flag to prevent `fprintd` from injecting a phantom pre-enroll identify touch and inflating `num-enroll-stages`.
 - [ ] **Remove legacy permissive Polkit installation:** no longer shipped by the installer. Existing system copies need explicit review/removal with backup; source changes do not remove an installed rule.
 
 ---
@@ -73,9 +74,11 @@ To move `drivers/syna_tod` from an external `libfprint-tod` plugin into an upstr
   - Embedded `SYNA_BUILTIN_CAPTURE_INIT` (4,676 bytes) and `SYNA_BUILTIN_CAPTURE_PACKET` (1,917 bytes) directly in `drivers/syna_tod/src/syna_capture_tables.h` with automatic fallback in `syna_oem_load()`, eliminating any runtime dependency on external `capture_init.bin` / `capture_packet.bin` files.
 - [x] **3. Self-Contained C Host Pairing (`0x4f` Ownership + `0x50` Public Material):**
   - Implemented `syna_pairing_generate_request()`, `syna_pairing_validate_request()`, and `syna_pairing_extract_credentials()` in `drivers/syna_tod/src/syna_tls.c` using the deterministic ROM `6.20` `HS_KEY_PAIR_GEN` EC P-256 vendor signer (`syna_tls_prf`), plus `syna_oem_save_credentials()` and first-boot auto-pairing (`SYNA_ALLOW_AUTO_PAIR=1`) in `syna_device.c`.
-- [ ] **4. Activate and validate the non-blocking backend:**
-  - Experimental `syna_ssm_open_new()` and `syna_ssm_capture_new()` exist and have offline hardening checks. Device operations still call the threaded implementation. Async baseline/calibration, close and operation orchestration plus USB replay/hardware testing are still required.
-- [ ] **5. Upstream `umockdev` Test Suite:**
+- [x] **4. OpenSSL 3.0 Modernization:**
+  - Migrated crypto primitives in `syna_tls.c` from deprecated OpenSSL 1.1 APIs to `EVP_MAC`, `EVP_Q_mac`, `EVP_PKEY_fromdata`, `EVP_PKEY_sign`, and `EVP_PKEY_Q_keygen` with zero `-Wdeprecated-declarations` warnings.
+- [x] **5. Full Non-Blocking `FpiSsm` Backend Wiring (`SYNA_USE_SSM=1`):**
+  - Implemented `OPEN_SSM` (19 states), `CAPTURE_SSM` (12 states), and uncancellable `CLOSE_SSM` (5 states). Wired across all device operations (`open`, `close`, `enroll`, `verify`, `identify`), selectable dynamically via `SYNA_USE_SSM=1` while keeping threaded `GTask` as the reliable default.
+- [ ] **6. Upstream `umockdev` Test Suite:**
   - Record synthetic USB + TLS session traces under `workspace/libfprint/tests/` so upstream CI can test open, enroll, verify, and identify without physical hardware (see [`docs/libfprint-upstreaming.md`](libfprint-upstreaming.md)).
 
 

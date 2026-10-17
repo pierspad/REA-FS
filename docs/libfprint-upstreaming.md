@@ -82,4 +82,50 @@ These checks do not replace USB replay, hardware recovery or biometric evaluatio
 3. **Non-blocking teardown SSM (`syna_ssm.c` / `syna_ssm.h` / `test_ssm.c`):** Implemented `syna_ssm_close_new()` completing the 5-state teardown sequence (`CLEANUP_TX` / `RX`, `TLS_ALERT_TX` / `RX`, `RELEASE_USB`) with uncancellable transfers (`cancellable == NULL`). Handled all enum states under `-Wswitch-enum`. Added unit test suite `ssm_tests` in `tests/test_ssm.c`. Standalone driver now passes 13 C test suites and 12 Python tests. Driver commits `20593b2` and `e88019c`.
 4. **Small-sensor benchmark tool (`tools/benchmark_small_sensor.py` / `tests/test_benchmark_small_sensor.py`):** Added deterministic offline tool evaluating human minutiae density in a $144 \times 56$ aperture ($20.16\text{ mm}^2$, dropping to $15.12\text{ mm}^2$ under $\pm 14\text{ px}$ vertical shift: expected $4.23$ minutiae vs NBIS `MIN_COMPUTABLE_BOZORTH_MINUTIAE = 10`, yielding a $98.8\%$ Bozorth3 failure rate) against 2D FFT spectral cross-correlation ($>0.92$ genuine, $<0.39$ impostor, separation margin $>0.54$). 4 automated tests added to the workbench (65 passed).
 5. **Native libfprint prototype refresh (`workspace/libfprint`):** Synced updated sources into `libfprint/drivers/syna_00dc/` (keeping native `dev_class->id = "syna_00dc"` and removing `06cb:00dc` from `fprint-list-udev-hwdb.c`), committed locally as `377fa6cc`. Full native compile completed with zero compiler warnings under both `-Wdeprecated-declarations` and `-Wswitch-enum`, and all upstream unit and hwdb/metainfo suites passed.
+6. **`dev_class->identify` + `FP_DEVICE_FEATURE_DUPLICATES_CHECK` + empty-gallery compliance:**
+   - Addressed `fprintd` duplicate check pre-enroll scan gotcha: by default, implementing `dev_class->identify` causes `fprintd` (`src/device.c`) to add `+1` to `num-enroll-stages` and trigger an unannounced pre-enroll `fp_device_identify(device, all_prints)` scan before calling `enroll()`.
+   - When no prints are enrolled (`all_prints->len == 0`), returning a `GError` from `identify` causes `fprintd` to abort `EnrollStart` with `Device reported an error during identify for enroll`.
+   - In `syna_identify_thread`, empty gallery returns `NULL` without error, passing upstream `test_driver_identify_empty_gallery`.
+   - Explicitly set `dev_class->features |= FP_DEVICE_FEATURE_DUPLICATES_CHECK;` in class initialization after `fpi_device_class_auto_initialize_features(dev_class)`, suppressing the redundant pre-enroll touch and maintaining exact D-Bus stage counts (`num-enroll-stages == nr_enroll_stages`).
+7. **Full `FpiSsm` runtime engine coverage (`OPEN_SSM`, `CAPTURE_SSM`, `CLOSE_SSM`):**
+   - The asynchronous sequential state machines (`syna_ssm_open_new`, `syna_ssm_capture_new`, `syna_ssm_close_new`) are fully wired into `syna_open`, `syna_enroll`, `syna_verify`, `syna_identify`, and `syna_close`.
+   - Runtime execution is gated by the environment variable `SYNA_USE_SSM=1` in the standalone TOD repository, enabling safe offline and live verification of the non-blocking engine without risking regression for daily users.
+
+## Dual-Track Strategy: `libfprint-tod` vs Native `libfprint` Merge Request
+
+To ensure uninterrupted service for current users while pursuing upstream acceptance, REA-FS maintains a strict dual-track development process:
+
+```
+                  ┌───────────────────────────────────────────────┐
+                  │   Upstream Hardware Investigation (REA-FS)    │
+                  └───────────────────────┬───────────────────────┘
+                                          │
+                  ┌───────────────────────┴───────────────────────┐
+                  ▼                                               ▼
+  Track 1: Production TOD Module                   Track 2: Native Upstream MR
+  repo: synaptics-00dc (main)                      repo: workspace/libfprint (fork)
+  ──────────────────────────────────────           ────────────────────────────────────
+  • Distributed via bootstrap.sh                   • Merged into upstream libfprint
+  • libfprint-tod-1 plugin binary                  • Built-in driver (syna_00dc)
+  • Threaded backend (GTask) default               • 100% async FpiSsm backend
+  • Opt-in SSM via SYNA_USE_SSM=1                  • Zero external TOD dependency
+  • Zero regression for laptop users               • Upstream CI & review compliance
+```
+
+### Track 1: Production TOD Module (`synaptics-00dc`, branch `main`)
+- **Target Audience:** Laptop users running modern Linux distributions (Ubuntu 22.04/24.04, Debian 12/testing, Fedora 39/40, Arch) with `libfprint-2-tod1`.
+- **Packaging & Delivery:** One-line installer (`bootstrap.sh`) builds and installs `libfprint-tod-syna-00dc.so` to `/usr/lib/x86_64-linux-gnu/libfprint-2/tod-1/`.
+- **Runtime Stability:** Defaults to the multi-threaded `GTask` engine. This engine handles baseline caching, 6-frame burst captures, instant touch-to-lift UI feedback, and multi-finger PAM authentication reliably today.
+- **Experimental Testing:** Setting `SYNA_USE_SSM=1` switches runtime execution to the non-blocking `FpiSsm` engine dynamically without recompilation.
+
+### Track 2: Native Upstream Merge Request (`workspace/libfprint`, GitLab MR branch)
+- **Target Audience:** Upstream `freedesktop.org/libfprint/libfprint` maintainers and global Linux distributions shipping vanilla `libfprint`.
+- **Driver Registration:** Registered as driver `syna_00dc` in `meson.build` and `libfprint/meson.build` (device ID `syna_00dc`, USB ID `06cb:00dc`).
+- **Architectural Standards:**
+  - Pure non-blocking `FpiSsm` execution across all entrypoints (`open`, `close`, `enroll`, `verify`, `identify`).
+  - Guaranteed uncancellable teardown (`syna_ssm_close_new` with `cancellable == NULL`).
+  - Full OpenSSL 3.0 `EVP_MAC` / `EVP_PKEY` compliance with zero compiler warnings under `-Wdeprecated-declarations` and `-Wswitch-enum`.
+  - Empty gallery identify compliance verified by `test_driver_identify_empty_gallery`.
+  - Hardware documentation and small-sensor justification (`tools/benchmark_small_sensor.py`).
+- **Complete Isolation:** Maintained on a dedicated GitLab branch in `workspace/libfprint`. Work on the native MR proceeds in parallel and never breaks or destabilizes the working TOD module.
 

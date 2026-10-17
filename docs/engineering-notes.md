@@ -43,15 +43,28 @@ Acquiring 10–20 empty-sensor frames every time `fprintd` opens the device adds
 
 ---
 
-## 5. Multi-Finger `identify` (1:N) & Passwordless Polkit
+## 5. Multi-Finger `identify` (1:N), `fprintd` Duplicate-Detection Gotcha & Passwordless Polkit
 
 - **`dev_class->identify`:** When multiple fingers are enrolled, `fprintd-verify` and PAM call `identify` (1:N). Implementing `dev_class->identify` allows matching against all enrolled fingers in a single touch, with progressive sub-template learning (up to 16 diversity-selected views per finger).
+- **The `fprintd` Duplicate-Detection Pre-Enroll Scan Gotcha:**
+  - In `fprintd` (`src/device.c`: `fprint_device_enroll_start` and `on_nr_enroll_stages_changed`), advertising `FP_DEVICE_FEATURE_IDENTIFY` causes `fprintd` to check `FP_DEVICE_FEATURE_DUPLICATES_CHECK` (`1 << 7`).
+  - If `FP_DEVICE_FEATURE_DUPLICATES_CHECK` is **not** set, `fprintd` inflates `num-enroll-stages` on D-Bus by `+1` (e.g., exposing 9 stages when `nr_enroll_stages = 8`) and silently invokes `fp_device_identify(device, all_prints, ..., enroll_identify_cb)` *before* starting the actual `enroll()` operation.
+  - If `all_prints` is empty (`prints->len == 0`), returning a `GError` from `identify` causes `fprintd` to abort `EnrollStart` immediately with D-Bus error `net.reactivated.Fprint.Error.Internal: Device reported an error during identify for enroll`.
+  - **Fix 1 (Empty-gallery compliance):** Per upstream `libfprint` unit test `test_driver_identify_empty_gallery`, empty gallery identify must return `NULL` without error (`fpi_device_identify_report(device, NULL, NULL, NULL)` + `fpi_device_identify_complete(device, NULL)`). In the threaded worker, `syna_identify_thread` checks `!entries || entries->len == 0` and calls `g_task_return_pointer(task, NULL, NULL)`.
+  - **Fix 2 (`FP_DEVICE_FEATURE_DUPLICATES_CHECK`):** Explicitly setting `dev_class->features |= FP_DEVICE_FEATURE_DUPLICATES_CHECK;` after `fpi_device_class_auto_initialize_features(dev_class)` tells `fprintd` that duplicate checking is handled or unneeded, preventing the extra pre-enroll scan and keeping D-Bus `num-enroll-stages` equal to `nr_enroll_stages`.
 - **Polkit Rule (`50-syna-00dc-fprintd.rules`):** `fprintd` defaults to `auth_self_keep`, which expires as soon as a short-lived CLI process (`fprintd-enroll`) exits. Installing `/etc/polkit-1/rules.d/50-syna-00dc-fprintd.rules` allows active local desktop sessions to enroll, verify, and delete prints without repeated `sudo` prompts.
 
 ---
 
 ## 6. Upstream `libfprint` Readiness: OpenSSL 3.0 EVP & Async `FpiSsm`
 
-- **OpenSSL 3.0 EVP Compliance (`syna_tls.c`):** Custom TLS 1.2 PRF, HMAC-SHA256, P-256 ECDH key exchange, and ECDSA signing use pure OpenSSL 3.0 `EVP_MAC`, `EVP_Q_mac`, `EVP_PKEY_fromdata`, and `EVP_PKEY_Q_keygen` APIs with zero `-Wdeprecated-declarations` warnings.
-- **Complete `FpiSsm` Engine (`syna_ssm.c`):** Alongside the production `GTask` backend, `syna_ssm.c` implements non-blocking `open` (`syna_ssm_open_new`), `capture` (`syna_ssm_capture_new`), and `close` (`syna_ssm_close_new`, with uncancellable `0x1a` cleanup + TLS `close_notify` + USB interface release).
+- **OpenSSL 3.0 EVP Compliance (`syna_tls.c`):** Custom TLS 1.2 PRF, HMAC-SHA256, P-256 ECDH key exchange, and ECDSA signing use pure OpenSSL 3.0 `EVP_MAC`, `EVP_Q_mac`, `EVP_PKEY_fromdata`, `EVP_PKEY_sign`, and `EVP_PKEY_Q_keygen` APIs with zero `-Wdeprecated-declarations` warnings.
+- **Complete `FpiSsm` Engine (`syna_ssm.c`):** Alongside the production `GTask` backend, non-blocking asynchronous state machines cover the full device lifecycle:
+  - **`OPEN_SSM` (`syna_ssm_open_new`):** 19 states handling USB interface claim, ROM version probe (`0x01`), module ID query (`0x75`), deterministic host pairing (`0x4f`/`0x50`), TLS 1.2 handshake flights, cleanup (`0x1a`), and capture initialization (`0x06`), with a dedicated error recovery state releasing claimed interfaces on failure.
+  - **`CAPTURE_SSM` (`syna_ssm_capture_new`):** 12 states executing capture start (`0x02`), non-blocking 17,024-byte bulk stream reads on endpoint `0x82`, real-time RMS contact/lift detection, capture stop (`0x04`), and 6-frame alignment/filtering.
+  - **`CLOSE_SSM` (`syna_ssm_close_new`):** 5 states executing cleanup (`0x1a`), TLS `close_notify`, and USB interface release. Marked uncancellable (`cancellable == NULL`) to guarantee hardware and interface cleanup even when callers cancel teardown.
+- **Full Operation Wiring & Opt-In Gate (`SYNA_USE_SSM=1`):**
+  - All device entry points (`syna_open`, `syna_enroll`, `syna_verify`, `syna_identify`, `syna_close`) are wired to both the threaded and `FpiSsm` backends.
+  - In the standalone TOD driver, `syna_use_async_ssm()` checks the environment variable `SYNA_USE_SSM=1`, allowing zero-risk offline and hardware verification of the non-blocking engine while maintaining 100% stable `GTask` execution as the default.
+  - In the native `libfprint` prototype (`workspace/libfprint`), the asynchronous engine is invoked directly for native upstream integration.
 

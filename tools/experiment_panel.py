@@ -332,7 +332,8 @@ def _collect_fprintd_diagnostics(started_iso: str) -> list[str]:
             capture_output=True, text=True, timeout=1.5
         )
         if res.returncode != 0: return []
-        keep = ('Hardware verified:', 'Open:', 'Capture', 'Synaptics ', 'Found baseline cache')
+        keep = ('Hardware verified:', 'Open:', 'Capture', 'Synaptics ', 'Found baseline cache',
+                'Device reported an error', 'Failed to ')
         lines = []
         for raw_line in res.stdout.splitlines():
             line = raw_line.strip()
@@ -447,12 +448,14 @@ def run_experiment(session_dir, experiment_id, cancel_on_eof=False, root=ROOT, e
                     elif text.startswith('Enroll result: '):
                         code = text.split(': ',1)[1].split()[0]
                         if code in RETRY_CODES: writer.emit('retry_hint', 'device', code=code)
+                        else: device_result = code
                     elif text.startswith('Verify result: '):
                         status = text.split(': ',1)[1].split()[0]
                         if status in ('verify-match','verify-no-match'):
                             device_result = status
                             writer.emit('verify_result', 'device', result=status)
                         elif status in RETRY_CODES: writer.emit('retry_hint', 'device', code=status)
+                        else: device_result = status
             if process.poll() is not None:
                 if exited_at is None: exited_at = time.monotonic()
                 if streams <= 0 or time.monotonic()-exited_at > .5: break
@@ -461,9 +464,15 @@ def run_experiment(session_dir, experiment_id, cancel_on_eof=False, root=ROOT, e
             writer.emit('stopping', reason=reason or 'remaining_processes')
             forced = _stop_group(process)
         else: process.wait()
+        diag_err = None
         if task['adapter'] == 'fprintd' and writer.started_event:
             diag = _collect_fprintd_diagnostics(writer.started_event['timestamp'])
-            if diag: writer.emit('driver_telemetry', 'device', messages=diag)
+            if diag:
+                writer.emit('driver_telemetry', 'device', messages=diag)
+                for d in reversed(diag):
+                    if 'Device reported an error' in d or 'Failed to ' in d:
+                        diag_err = d
+                        break
         if reason:
             terminal = 'timeout' if reason == 'timeout' else 'stopped' if reason == 'cancel' else 'failed'
             writer.emit(terminal, reason=reason, exit_code=process.returncode,
@@ -471,8 +480,10 @@ def run_experiment(session_dir, experiment_id, cancel_on_eof=False, root=ROOT, e
         else:
             exit_code = process.returncode
             if listing and exit_code == 0: writer.emit('enrolled_fingers', fingers=enrolled)
+            fail_msg = diag_err or (f"fprintd reported {device_result}" if exit_code != 0 and device_result else None)
+            extra = {'message': fail_msg} if fail_msg else {}
             writer.emit('completed' if exit_code == 0 else 'failed', exit_code=exit_code,
-                        result=device_result, cleanup_not_confirmed=forced)
+                        result=device_result, cleanup_not_confirmed=forced, **extra)
         return 0 if not reason and exit_code == 0 else 1
     except KeyboardInterrupt:
         if process and _group_exists(process.pid): _stop_group(process)
