@@ -15,6 +15,13 @@ DEFAULT_PROTOTYPE_DIR = ROOT / "workspace" / "libfprint" / "libfprint" / "driver
 DEFAULT_UPSTREAM_REPO = ROOT.parent / "synaptics-00dc"
 
 
+def git_env() -> dict:
+    env = os.environ.copy()
+    for var in ("GIT_DIR", "GIT_INDEX_FILE", "GIT_WORK_TREE", "GIT_OBJECT_DIRECTORY"):
+        env.pop(var, None)
+    return env
+
+
 def extract_meson_version(content: str) -> Optional[str]:
     m = re.search(r"version:\s*'([^']+)'", content)
     return m.group(1).strip() if m else None
@@ -48,7 +55,7 @@ def verify_versions_match(driver_dir: Path) -> Tuple[bool, str]:
 def check_working_tree_clean(repo_dir: Path) -> Tuple[bool, str]:
     res = subprocess.run(
         ["git", "-C", str(repo_dir), "status", "--porcelain"],
-        capture_output=True, text=True
+        capture_output=True, text=True, env=git_env()
     )
     if res.returncode != 0:
         return False, f"git status failed in {repo_dir}: {res.stderr.strip()}"
@@ -61,7 +68,7 @@ def check_working_tree_clean(repo_dir: Path) -> Tuple[bool, str]:
 def check_submodule_reachable_on_remote(submodule_dir: Path, remote_branch: str = "origin/main") -> Tuple[bool, str]:
     res = subprocess.run(
         ["git", "-C", str(submodule_dir), "rev-parse", "HEAD"],
-        capture_output=True, text=True
+        capture_output=True, text=True, env=git_env()
     )
     if res.returncode != 0:
         return False, f"Could not determine HEAD in {submodule_dir}: {res.stderr.strip()}"
@@ -70,7 +77,7 @@ def check_submodule_reachable_on_remote(submodule_dir: Path, remote_branch: str 
     # Check if HEAD is an ancestor of remote branch
     res_anc = subprocess.run(
         ["git", "-C", str(submodule_dir), "merge-base", "--is-ancestor", "HEAD", remote_branch],
-        capture_output=True, text=True
+        capture_output=True, text=True, env=git_env()
     )
     if res_anc.returncode == 0:
         return True, f"Submodule HEAD ({head_sha[:8]}) is reachable on {remote_branch}"
@@ -80,11 +87,11 @@ def check_submodule_reachable_on_remote(submodule_dir: Path, remote_branch: str 
         remote, branch = remote_branch.split("/", 1) if "/" in remote_branch else ("origin", "main")
         subprocess.run(
             ["git", "-C", str(submodule_dir), "fetch", remote, branch],
-            capture_output=True, text=True, timeout=10
+            capture_output=True, text=True, timeout=10, env=git_env()
         )
         res_anc = subprocess.run(
             ["git", "-C", str(submodule_dir), "merge-base", "--is-ancestor", "HEAD", remote_branch],
-            capture_output=True, text=True
+            capture_output=True, text=True, env=git_env()
         )
         if res_anc.returncode == 0:
             return True, f"Submodule HEAD ({head_sha[:8]}) is reachable on {remote_branch}"
@@ -147,7 +154,7 @@ def sync_driver(root: Path = ROOT, synaptics_repo: Optional[Path] = None) -> int
 
         res = subprocess.run(
             ["git", "-C", str(synaptics_repo), "rev-list", "origin/main..HEAD"],
-            capture_output=True, text=True
+            capture_output=True, text=True, env=git_env()
         )
         if res.returncode == 0 and res.stdout.strip():
             print("Error: synaptics-00dc has unpushed commits ahead of origin/main. Push upstream first!", file=sys.stderr)
@@ -156,7 +163,7 @@ def sync_driver(root: Path = ROOT, synaptics_repo: Optional[Path] = None) -> int
     print(f"Fetching and fast-forwarding {syna_dir} from origin/main...")
     res = subprocess.run(
         ["git", "-C", str(syna_dir), "fetch", "origin", "main"],
-        capture_output=True, text=True
+        capture_output=True, text=True, env=git_env()
     )
     if res.returncode != 0:
         print(f"Error fetching origin/main for {syna_dir}: {res.stderr.strip()}", file=sys.stderr)
@@ -164,7 +171,7 @@ def sync_driver(root: Path = ROOT, synaptics_repo: Optional[Path] = None) -> int
 
     res = subprocess.run(
         ["git", "-C", str(syna_dir), "checkout", "origin/main"],
-        capture_output=True, text=True
+        capture_output=True, text=True, env=git_env()
     )
     if res.returncode != 0:
         print(f"Error checking out origin/main in {syna_dir}: {res.stderr.strip()}", file=sys.stderr)
@@ -209,6 +216,7 @@ set -e
 # If drivers/syna_tod is modified or staged, run sync check
 if git diff --cached --name-only | grep -q "^drivers/syna_tod"; then
     echo "Running driver sync check on staged drivers/syna_tod..."
+    unset GIT_DIR GIT_INDEX_FILE GIT_WORK_TREE GIT_OBJECT_DIRECTORY
     python3 scripts/sync-driver.py --check
 fi
 """
@@ -234,6 +242,7 @@ done
 
 if [ "$touched" -eq 1 ]; then
     echo "Running driver sync check before pushing drivers/syna_tod..."
+    unset GIT_DIR GIT_INDEX_FILE GIT_WORK_TREE GIT_OBJECT_DIRECTORY
     python3 scripts/sync-driver.py --check
 fi
 """
