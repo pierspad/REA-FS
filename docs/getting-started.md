@@ -98,3 +98,17 @@ The agent can initialize a missing submodule after checking for local changes.
 It should not erase or replace an existing investigation, install the example
 implicitly, or publish private logs. Missing tools and unsupported hardware are
 valid findings; they are not permission to invent a successful result.
+
+## 6. Share hardware reports, fixes, or new sensor findings
+
+If you solve a problem, improve the workbench, or test the Synaptics driver on your machine,
+please share your results by opening an **Issue** or **Pull Request** on GitHub
+([`REA-FS`](https://github.com/pierspad/REA-FS) or [`synaptics-00dc`](https://github.com/pierspad/synaptics-00dc)):
+
+- **Even if installation worked on the first try:** Open a quick Issue reporting your laptop
+  model, Linux distribution/kernel, USB ID, and sensor ROM/module revision so we can track
+  verified devices and hardware variants (never include personal serial numbers, pairing keys,
+  or fingerprint data).
+- **If your AI agent fixed a bug or added support:** Ask your agent to prepare a clean PR or
+  Issue with a detailed technical explanation of the root cause and the offline test results.
+

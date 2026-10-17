@@ -11,9 +11,11 @@ Before starting an investigation, read `README.md`, `docs/repositories.md`, `doc
 - **Preferences & autonomy:** Follow `docs/preferences.md`. Default mode is `ask`; in `autonomous` mode proceed without re-confirming within authorized categories. If `.rea-fs.local/preferences.json` is unconfigured, ask the 3 setup questions once in chat and save the result locally. Do not treat silence or refusal as consent to full autonomy. Errors require root-cause analysis, not blind retries.
 - **Delegation:** Delegate to subagents only when allowed by session preferences and when net savings (including context transfer and verification) are plausible. Cheap model pricing does not automatically equal fewer tokens.
 
-## New User or Sensor
+## New User, Sensor, or Community Feedback
 
-Read `docs/getting-started.md`. Recommend cloning with `--recurse-submodules`; if the submodule is missing, check for local changes before initializing it. Do not apply Synaptics-specific opcodes, thresholds, pairing blobs, or Polkit rules to another sensor. When assisting an external driver tester, follow `drivers/syna_tod/docs/testing.md` and record the exact tested revision.
+Read `docs/getting-started.md`. Recommend cloning with `--recurse-submodules`; if the submodule is missing, check for local changes before initializing it (`python3 scripts/sync-driver.py --check` verifies submodule cleanliness, version alignment, and remote reachability). Do not apply Synaptics-specific opcodes, thresholds, pairing blobs, or Polkit rules to another sensor. When assisting an external driver tester, follow `drivers/syna_tod/docs/testing.md` and record the exact tested revision.
+
+**Share findings upstream (with user permission):** If you and the user confirm that `synaptics-00dc` works on a specific laptop/ROM revision, discover a bug, or implement an improvement in `REA-FS` or `synaptics-00dc`, proactively offer to open a detailed GitHub Issue or Pull Request (including hardware compatibility confirmations containing laptop model, distro/kernel, and ROM/module ID, without personal serials or private credentials/biometrics).
 
 ## Execution Rule: Direct Terminal vs. GUI Panel
 

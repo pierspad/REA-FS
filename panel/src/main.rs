@@ -346,9 +346,9 @@ fn fingerprint_scanner(ui: &mut egui::Ui, phase: Phase, result: Option<bool>, zo
         (_, Phase::Lift) | (_, Phase::Preparing) | (_, Phase::Wait) => (Color32::from_rgb(60, 35, 5), AMBER),
         (_, Phase::Idle) => (BG, MUTED),
     };
+    let pulse = (ui.input(|i| i.time) * 4.2).sin() as f32 * 0.5 + 0.5;
     let pad = Rect::from_center_size(c, Vec2::new(108.0, 126.0));
     if phase != Phase::Idle || result.is_some() {
-        let pulse = (ui.input(|i| i.time) * 3.0).sin() as f32 * 0.5 + 0.5;
         let glow = accent.gamma_multiply(0.12 + 0.18 * if phase == Phase::Touch { pulse } else { 0.6 });
         painter.rect_filled(pad.expand(6.0), 22.0, glow);
     }
@@ -366,20 +366,32 @@ fn fingerprint_scanner(ui: &mut egui::Ui, phase: Phase, result: Option<bool>, zo
             points.push(core + Vec2::new(*r, drop * 0.85));
             painter.add(egui::Shape::line(points, Stroke::new(2.2, accent)));
         } else {
-            let dimmed = Stroke::new(2.2, accent.gamma_multiply(0.28));
-            let target = Stroke::new(2.8, accent);
+            let dimmed = Stroke::new(1.5, accent.gamma_multiply(0.14));
+            let glow_stroke = Stroke::new(6.0 + 3.0 * pulse, accent.gamma_multiply(0.22 + 0.28 * pulse));
+            let target = Stroke::new(3.2, lighten(accent, (28.0 * pulse) as u8));
 
             let (left_target, crown_target, right_target) = match zone {
                 FingerZone::Center => (i <= 2, i <= 2, i <= 2),
                 FingerZone::Tip => (false, i >= 2, false),
-                FingerZone::Base => (true, false, true),
-                FingerZone::Edges => (i >= 3, false, i >= 3),
+                FingerZone::Base => (i <= 4, false, i <= 4),
+                FingerZone::LeftEdge => (i >= 2, false, false),
+                FingerZone::RightEdge => (false, false, i >= 2),
                 FingerZone::All => (true, true, true),
             };
 
             let left_leg = vec![core + Vec2::new(-r, drop), core + Vec2::new(-r, 0.0)];
             let crown = arc(core, *r, PI, 2.0 * PI);
             let right_leg = vec![core + Vec2::new(*r, 0.0), core + Vec2::new(*r, drop * 0.85)];
+
+            if left_target {
+                painter.add(egui::Shape::line(left_leg.clone(), glow_stroke));
+            }
+            if crown_target {
+                painter.add(egui::Shape::line(crown.clone(), glow_stroke));
+            }
+            if right_target {
+                painter.add(egui::Shape::line(right_leg.clone(), glow_stroke));
+            }
 
             painter.add(egui::Shape::line(left_leg, if left_target { target } else { dimmed }));
             painter.add(egui::Shape::line(crown, if crown_target { target } else { dimmed }));
