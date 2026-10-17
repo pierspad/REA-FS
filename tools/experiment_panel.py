@@ -367,6 +367,8 @@ def run_experiment(session_dir, experiment_id, cancel_on_eof=False, root=ROOT, e
     import getpass
     argv = [arg.replace('{run_dir}', str(writer.run_dir.resolve())).replace('{user}', getpass.getuser())
                .replace('{finger}', parameters.get('finger', '{finger}')) for arg in task['argv']]
+    if task['adapter'] == 'fprintd' and Path(argv[0]).name == 'fprintd-verify' and '-f' not in argv and '--finger' not in argv:
+        argv = [*argv, '-f', 'any']
     messages = queue.Queue(maxsize=128)
     bridge_stop = threading.Event()
     process = None
@@ -374,95 +376,109 @@ def run_experiment(session_dir, experiment_id, cancel_on_eof=False, root=ROOT, e
     exit_code = 1
     forced = False
     try:
-        process = subprocess.Popen(argv, cwd=(root/task.get('cwd', '.')).resolve(),
-            stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-            start_new_session=True)
-        writer.emit('started', process_group=process.pid, argv=argv, cwd=str((root/task.get('cwd', '.')).resolve()),
-                    timeout_seconds=task['timeout_seconds'], adapter=task['adapter'],
-                    instructions=task['instructions'], next_steps=task.get('next_steps', ''),
-                    parameters=parameters, run_directory=str(writer.run_dir.resolve()))
-        for channel, stream in [('stdout', process.stdout), ('stderr', process.stderr)]:
-            threading.Thread(target=_reader, args=(stream, messages, channel), daemon=True).start()
-        threading.Thread(target=_controls, args=(messages, cancel_on_eof, bridge_stop), daemon=True).start()
         if task.get('raw_log'):
             fd = os.open(writer.run_dir/'output.log', os.O_WRONLY|os.O_CREAT|os.O_EXCL, 0o600)
             raw = os.fdopen(fd, 'wb')
-        bridge_started = False
-        selected_device_path = None
+        threading.Thread(target=_controls, args=(messages, cancel_on_eof, bridge_stop), daemon=True).start()
         deadline = time.monotonic()+task['timeout_seconds']
         reason = None
         raw_size = 0
-        streams = 2
-        exited_at = None
         completed = 0
         total = 0
         device_result = None
         listing = Path(argv[0]).name == 'fprintd-list' and task['adapter'] == 'plain'
         enrolled = []
+        claim_retries = 0
         while True:
-            if time.monotonic() >= deadline: reason = 'timeout'; break
-            try: kind, channel, payload = messages.get(timeout=.02)
-            except queue.Empty: kind = None
-            if kind == 'control':
-                if channel == 'cancel': reason = 'cancel'; break
-                if channel == 'note': writer.emit('user_note', 'user', text=payload)
-                else: writer.emit('user_confirmation', 'user', confirmed=True)
-            elif kind == 'overflow': reason = 'output_limit'; break
-            elif kind == 'eof': streams -= 1
-            elif kind == 'limitation':
-                writer.emit('limitation', text=channel)
-            elif kind == 'bridge_missing':
-                writer.emit('limitation', text='gdbus unavailable: contact state cannot be observed')
-            elif kind == 'device':
-                needed, present, total = channel
-                writer.emit('device_state','device',needed=needed,present=present)
-            elif kind == 'line':
-                if raw:
-                    raw_size += len(payload)
-                    if raw_size > RAW_LIMIT: reason = 'output_limit'; break
-                    raw.write(payload); raw.flush()
-                if channel == 'stdout' and task['adapter'] == 'simulation':
-                    _simulation_event(writer, payload)
-                if channel == 'stdout' and listing:
-                    found = re.fullmatch(r'\s*-\s*#\d+:\s*([a-z-]+)\s*', payload.decode('utf-8', 'replace'))
-                    if found and found[1] in FINGERS and found[1] not in enrolled: enrolled.append(found[1])
-                if channel == 'stdout' and task['adapter'] == 'fprintd':
-                    text = payload.decode('utf-8','replace').strip()
-                    device_path = re.fullmatch(r'Using device (/net/reactivated/Fprint/Device/\d+)', text)
-                    if device_path: selected_device_path = device_path[1]
-                    # fprintd prints its selected path before open/calibration.
-                    # Do not expose stale finger-needed flags from that phase.
-                    if not bridge_started and selected_device_path and (text == 'Verify started!' or text.startswith('Enrolling ')):
-                        threading.Thread(target=_fprint_state,args=(messages,bridge_stop,selected_device_path),daemon=True).start()
-                        bridge_started = True
-                        # Marks the end of claim/open/calibration: lets the GUI split latency.
-                        writer.emit('operation_started', 'device')
-                    selected = re.fullmatch(r'Verifying: ([a-z-]+)', text)
-                    if selected: writer.emit('verify_finger', 'device', finger=selected[1])
-                    if text == 'Enroll result: enroll-stage-passed':
-                        completed += 1
-                        writer.emit('progress','device',completed=completed,total=total)
-                    elif text == 'Enroll result: enroll-completed':
-                        writer.emit('progress','device',completed=total or completed+1,total=total or completed+1)
-                        device_result = 'enroll-completed'
-                    elif text.startswith('Enroll result: '):
-                        code = text.split(': ',1)[1].split()[0]
-                        if code in RETRY_CODES: writer.emit('retry_hint', 'device', code=code)
-                        else: device_result = code
-                    elif text.startswith('Verify result: '):
-                        status = text.split(': ',1)[1].split()[0]
-                        if status in ('verify-match','verify-no-match'):
-                            device_result = status
-                            writer.emit('verify_result', 'device', result=status)
-                        elif status in RETRY_CODES: writer.emit('retry_hint', 'device', code=status)
-                        else: device_result = status
-            if process.poll() is not None:
-                if exited_at is None: exited_at = time.monotonic()
-                if streams <= 0 or time.monotonic()-exited_at > .5: break
+            process = subprocess.Popen(argv, cwd=(root/task.get('cwd', '.')).resolve(),
+                stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                start_new_session=True)
+            if claim_retries == 0:
+                writer.emit('started', process_group=process.pid, argv=argv, cwd=str((root/task.get('cwd', '.')).resolve()),
+                            timeout_seconds=task['timeout_seconds'], adapter=task['adapter'],
+                            instructions=task['instructions'], next_steps=task.get('next_steps', ''),
+                            parameters=parameters, run_directory=str(writer.run_dir.resolve()))
+            for channel, stream in [('stdout', process.stdout), ('stderr', process.stderr)]:
+                threading.Thread(target=_reader, args=(stream, messages, channel), daemon=True).start()
+            bridge_started = False
+            selected_device_path = None
+            streams = 2
+            exited_at = None
+            saw_already_in_use = False
+            while True:
+                if time.monotonic() >= deadline: reason = 'timeout'; break
+                try: kind, channel, payload = messages.get(timeout=.02)
+                except queue.Empty: kind = None
+                if kind == 'control':
+                    if channel == 'cancel': reason = 'cancel'; break
+                    if channel == 'note': writer.emit('user_note', 'user', text=payload)
+                    else: writer.emit('user_confirmation', 'user', confirmed=True)
+                elif kind == 'overflow': reason = 'output_limit'; break
+                elif kind == 'eof': streams -= 1
+                elif kind == 'limitation':
+                    writer.emit('limitation', text=channel)
+                elif kind == 'bridge_missing':
+                    writer.emit('limitation', text='gdbus unavailable: contact state cannot be observed')
+                elif kind == 'device':
+                    needed, present, total = channel
+                    writer.emit('device_state','device',needed=needed,present=present)
+                elif kind == 'line':
+                    if raw:
+                        raw_size += len(payload)
+                        if raw_size > RAW_LIMIT: reason = 'output_limit'; break
+                        raw.write(payload); raw.flush()
+                    text_line = payload.decode('utf-8', 'replace')
+                    if 'AlreadyInUse' in text_line or 'Device was already claimed' in text_line:
+                        saw_already_in_use = True
+                    if channel == 'stdout' and task['adapter'] == 'simulation':
+                        _simulation_event(writer, payload)
+                    if channel == 'stdout' and listing:
+                        found = re.fullmatch(r'\s*-\s*#\d+:\s*([a-z-]+)\s*', text_line)
+                        if found and found[1] in FINGERS and found[1] not in enrolled: enrolled.append(found[1])
+                    if channel == 'stdout' and task['adapter'] == 'fprintd':
+                        text = text_line.strip()
+                        device_path = re.fullmatch(r'Using device (/net/reactivated/Fprint/Device/\d+)', text)
+                        if device_path: selected_device_path = device_path[1]
+                        # fprintd prints its selected path before open/calibration.
+                        # Do not expose stale finger-needed flags from that phase.
+                        if not bridge_started and selected_device_path and (text == 'Verify started!' or text.startswith('Enrolling ')):
+                            threading.Thread(target=_fprint_state,args=(messages,bridge_stop,selected_device_path),daemon=True).start()
+                            bridge_started = True
+                            # Marks the end of claim/open/calibration: lets the GUI split latency.
+                            writer.emit('operation_started', 'device')
+                        selected = re.fullmatch(r'Verifying: ([a-z-]+)', text)
+                        if selected: writer.emit('verify_finger', 'device', finger=selected[1])
+                        if text == 'Enroll result: enroll-stage-passed':
+                            completed += 1
+                            writer.emit('progress','device',completed=completed,total=total)
+                        elif text == 'Enroll result: enroll-completed':
+                            writer.emit('progress','device',completed=total or completed+1,total=total or completed+1)
+                            device_result = 'enroll-completed'
+                        elif text.startswith('Enroll result: '):
+                            code = text.split(': ',1)[1].split()[0]
+                            if code in RETRY_CODES: writer.emit('retry_hint', 'device', code=code)
+                            else: device_result = code
+                        elif text.startswith('Verify result: '):
+                            status = text.split(': ',1)[1].split()[0]
+                            if status in ('verify-match','verify-no-match'):
+                                device_result = status
+                                writer.emit('verify_result', 'device', result=status)
+                            elif status in RETRY_CODES: writer.emit('retry_hint', 'device', code=status)
+                            else: device_result = status
+                if process.poll() is not None:
+                    if exited_at is None: exited_at = time.monotonic()
+                    if streams <= 0 or time.monotonic()-exited_at > .5: break
+            if not reason and process.returncode != 0 and saw_already_in_use and claim_retries < 8 and time.monotonic() + 0.5 < deadline:
+                claim_retries += 1
+                time.sleep(0.4)
+                continue
+            break
         bridge_stop.set()
         if reason or _group_exists(process.pid):
             writer.emit('stopping', reason=reason or 'remaining_processes')
             forced = _stop_group(process)
+            if reason == 'cancel' and task['adapter'] == 'fprintd':
+                time.sleep(0.25)
         else: process.wait()
         diag_err = None
         if task['adapter'] == 'fprintd' and writer.started_event:

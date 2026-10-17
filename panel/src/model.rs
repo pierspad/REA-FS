@@ -56,7 +56,10 @@ pub fn enroll_zone_for_stage(completed: u64, total: u64) -> (FingerZone, &'stati
     if total == 0 {
         (FingerZone::All, "Place your finger flat in the center of the reader.")
     } else {
-        match completed {
+        // When fprintd runs a pre-enroll duplicate check (total == 9), stage 0 is the
+        // initial center duplicate-check scan and stages 1..=8 are the 8 enrollment stages.
+        let stage = if total >= 9 { completed.saturating_sub(1) } else { completed };
+        match stage {
             0..=1 => (FingerZone::Center, "Step 1/5 · Center: place the flat center of your fingertip."),
             2..=3 => (FingerZone::Tip, "Step 2/5 · Tip: shift slightly forward toward the fingertip."),
             4..=5 => (FingerZone::Base, "Step 3/5 · Base: shift slightly down toward the lower pad."),
@@ -426,5 +429,13 @@ mod tests {
             assert_eq!(res.0, *zone, "zone mismatch at completed={completed}");
             assert_eq!(res.1, *prompt, "prompt mismatch at completed={completed}");
         }
+        // With total == 9 (fprintd pre-enroll duplicate check + 8 enroll stages):
+        assert_eq!(enroll_zone_for_stage(0, 9).0, FingerZone::Center);
+        assert_eq!(enroll_zone_for_stage(1, 9).0, FingerZone::Center);
+        assert_eq!(enroll_zone_for_stage(2, 9).0, FingerZone::Center);
+        assert_eq!(enroll_zone_for_stage(3, 9).0, FingerZone::Tip);
+        assert_eq!(enroll_zone_for_stage(5, 9).0, FingerZone::Base);
+        assert_eq!(enroll_zone_for_stage(7, 9).0, FingerZone::LeftEdge);
+        assert_eq!(enroll_zone_for_stage(8, 9).0, FingerZone::RightEdge);
     }
 }

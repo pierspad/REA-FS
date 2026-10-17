@@ -222,3 +222,34 @@ class LogProtocolTests(RunnerTests):
         ok=run('--finger','left-thumb')
         self.assertEqual(ok.returncode,0,ok.stderr)
         self.assertEqual(json.loads(ok.stdout.splitlines()[0])['argv'][-1],'left-thumb')
+
+    def test_transient_already_in_use_retries_automatically(self):
+        counter = self.root / 'attempts.txt'
+        code = (
+            f"from pathlib import Path; import sys; p = Path({str(counter)!r}); "
+            "n = int(p.read_text()) if p.exists() else 0; p.write_text(str(n + 1)); "
+            "sys.stderr.write('GDBus.Error:net.reactivated.Fprint.Error.AlreadyInUse: Device was already claimed\\n') if n == 0 else print('ok'); "
+            "raise SystemExit(1 if n == 0 else 0)"
+        )
+        events = self.events(self.start(code, timeout=5))
+        self.assertEqual(events[-1]['type'], 'completed')
+        self.assertEqual(int(counter.read_text()), 2)
+
+    def test_fprintd_verify_defaults_to_any_finger(self):
+        fake_verify = self.root / 'fprintd-verify'
+        fake_verify.write_text(f"#!{sys.executable}\nimport sys\nprint('ARGS:', ' '.join(sys.argv[1:]))\n")
+        fake_verify.chmod(0o755)
+        self.plan['experiments'][0].update(
+            argv=[str(fake_verify)],
+            timeout_seconds=5,
+            adapter='fprintd',
+            raw_log=True,
+        )
+        self.write()
+        out = subprocess.run(
+            [sys.executable, str(CLI), 'run', '--session-dir', str(self.root), '--experiment', 'one'],
+            capture_output=True, text=True, timeout=10, stdin=subprocess.DEVNULL,
+        )
+        self.assertEqual(out.returncode, 0, out.stderr)
+        events = [json.loads(line) for line in out.stdout.splitlines()]
+        self.assertEqual(events[0]['argv'][-2:], ['-f', 'any'])

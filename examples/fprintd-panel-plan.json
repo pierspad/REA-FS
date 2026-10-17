@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "plan_id": "fprintd-guided",
-  "revision": 3,
+  "revision": 4,
   "title": "REA-FS · Fingerprint Testbench & Management",
   "experiments": [
     {
@@ -9,7 +9,9 @@
       "title": "Verify fingerprint",
       "instructions": "Automatic verification against all enrolled fingerprints. Keep the sensor clear while opening, then touch when prompted.",
       "argv": [
-        "fprintd-verify"
+        "fprintd-verify",
+        "-f",
+        "any"
       ],
       "cwd": ".",
       "timeout_seconds": 90,
