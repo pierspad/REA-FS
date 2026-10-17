@@ -13,6 +13,7 @@ import sys
 from datetime import datetime, timezone
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
 
 
 def command(args, cwd=ROOT, timeout=30):
@@ -98,6 +99,11 @@ def main():
     summary = subs.add_parser('summarize', help='Summarize a manually labeled attempt CSV')
     summary.add_argument('csv', type=Path)
     summary.add_argument('--threshold', type=float, default=0.5)
+    sync_p = subs.add_parser('sync-driver', help='Synchronize or verify driver submodule and native prototype')
+    sync_grp = sync_p.add_mutually_exclusive_group(required=True)
+    sync_grp.add_argument('--check', action='store_true', help='Verify driver submodule cleanliness, version match, and remote reachability')
+    sync_grp.add_argument('--sync', action='store_true', help='Sync drivers/syna_tod and workspace/libfprint from upstream origin/main')
+    sync_grp.add_argument('--install-hooks', action='store_true', help='Install git pre-commit and pre-push hooks')
     args = parser.parse_args()
     try:
         if args.action == 'init-session':
@@ -112,6 +118,14 @@ def main():
             if not math.isfinite(args.threshold) or not -1 <= args.threshold <= 1:
                 raise ValueError('threshold must be finite and between -1 and 1')
             print(json.dumps(summarize(args.csv, args.threshold), indent=2, allow_nan=False))
+        elif args.action == 'sync-driver':
+            from tools.driver_sync import check_driver, sync_driver, install_hooks
+            if args.check:
+                return check_driver(ROOT)
+            elif args.sync:
+                return sync_driver(ROOT)
+            elif args.install_hooks:
+                return install_hooks(ROOT)
         else:
             if not (ROOT/'drivers/syna_tod/meson.build').is_file():
                 parser.exit(1, 'Driver submodule missing. Run git submodule update --init --recursive.\n')
